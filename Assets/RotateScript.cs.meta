@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 54f79da0ebf218143b14723a692cba23
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - secondMaterial: {fileID: 2100000, guid: 65af4295eb02e1d44995ecf05c6c75ea, type: 2}
+  - hoverMaterial: {fileID: 2100000, guid: 65af4295eb02e1d44995ecf05c6c75ea, type: 2}
+  - targetRenderer: {instanceID: 0}
+  - raycastCamera: {instanceID: 0}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
