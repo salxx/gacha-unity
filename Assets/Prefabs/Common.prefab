@@ -215,3 +215,4 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RotateScript
   rotationSpeed: 0.5
   invert: 0
+  axis: {x: 0, y: 0, z: 1}

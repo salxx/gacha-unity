@@ -3,197 +3,130 @@ using System.Collections.Generic;
 using UnityEngine;
 
 [Serializable]
-public class PilotBonuses
-{
-    public float damage;
-    public float armor;
-    public float health;
-    public float range;
-    public float fire_rate;
-
-    public float Damage => damage;
-    public float Armor => armor;
-    public float Health => health;
-    public float Range => range;
-    public float FireRate => fire_rate;
-}
-
-[Serializable]
-public class PilotData
+public class CharacterData
 {
     public string id;
     public string name;
+    public int tier; // 1 to 5 stars (pulled at 1 to 3, upgradeable to 5)
     public int health;
-    public string skill;
-    public PilotBonuses bonuses;
 
+    public int Tier => tier > 0 ? tier : 1;
+    public int Stars => Tier;
     public int Health => health;
-    public string Skill => skill;
-    public PilotBonuses Bonuses => bonuses;
-}
 
-[Serializable]
-public class MechaData
-{
-    public string id;
-    public string name;
-    public int health;
-    public float armor;
-    public float shield;
-    public float range;
-    public float damage;
-    public float fire_rate;
-    public string[] module_slots;
-
-    // For future assembly: assigned pilot and modules
-    public PilotData assigned_pilot;
-    public ModuleData[] assigned_modules;
-
-    public int Health => health;
-    public float Armor => armor;
-    public float Shield => shield;
-    public float Range => range;
-    public float Damage => damage;
-    public float FireRate => fire_rate;
-    public string[] ModuleSlots => module_slots;
-    public int SlotCount => module_slots != null ? module_slots.Length : 0;
-
-    public bool CanAcceptModule(int slotIndex, ModuleData module)
+    public string GetTierDisplayName()
     {
-        if (module == null || module_slots == null || slotIndex < 0 || slotIndex >= module_slots.Length)
+        return $"{Tier} star";
+    }
+
+    public string GetRarityName()
+    {
+        switch (Tier)
         {
-            return false;
+            case 1: return "Common";
+            case 2: return "Rare";
+            case 3: return "Super Rare";
+            default: return "Super Rare";
         }
-        return string.Equals(module_slots[slotIndex], module.slot_color, StringComparison.OrdinalIgnoreCase);
     }
 }
 
 [Serializable]
-public class ModuleBonuses
-{
-    public float armor;
-    public float shield;
-    public float damage;
-    public float penetration;
-    public float range;
-    public float fire_rate;
-
-    public float Armor => armor;
-    public float Shield => shield;
-    public float Damage => damage;
-    public float Penetration => penetration;
-    public float Range => range;
-    public float FireRate => fire_rate;
-}
-
-[Serializable]
-public class ModuleData
+public class SupportCardData
 {
     public string id;
     public string name;
-    public string slot_color;
-    public ModuleBonuses bonuses;
+    public int tier; // Base rarity tier: 1 (C), 2 (R), 3 (SR)
+    public int level = 1;
+    public string[] skills;
 
-    public string SlotColor => slot_color;
-    public ModuleBonuses Bonuses => bonuses;
+    public int Tier => tier > 0 ? tier : 1;
+    public int Level => level > 0 ? level : 1;
+    public string[] Skills => skills;
+
+    public int MaxLevel
+    {
+        get
+        {
+            switch (Tier)
+            {
+                case 1: return 30; // Common max lvl 30
+                case 2: return 40; // Rare max lvl 40
+                case 3: return 50; // Super Rare max lvl 50
+                default: return 30 + (Tier - 1) * 10;
+            }
+        }
+    }
+
+    public string GetTierDisplayName()
+    {
+        switch (Tier)
+        {
+            case 1: return "C";
+            case 2: return "R";
+            case 3: return "SR";
+            default: return $"T{Tier}";
+        }
+    }
+
+    public string GetRarityName()
+    {
+        switch (Tier)
+        {
+            case 1: return "Common";
+            case 2: return "Rare";
+            case 3: return "Super Rare";
+            default: return $"Tier {Tier}";
+        }
+    }
 }
 
 [Serializable]
 public class GachaRewardData
 {
-    // Legacy / Shared fields
     public int health;
-    public string skill;
-    public float armor;
-    public float shield;
-    public float range;
-    public float damage;
-    public float fire_rate;
-    public string[] module_slots;
-    public string slot_color;
+    public string[] skills;
 
-    // Nested reward models
-    public PilotData pilot;
-    public MechaData mecha;
-    public ModuleData module;
+    public CharacterData character;
+    public SupportCardData support_card;
 
-    // Direct bonuses if flattened under data
-    public PilotBonuses pilot_bonuses;
-    public ModuleBonuses module_bonuses;
-
-    public PilotData AsPilot(string fallbackId = null, string fallbackName = null)
+    public CharacterData AsCharacter(string fallbackId = null, string fallbackName = null, int fallbackTier = 1)
     {
-        if (pilot != null)
+        if (character != null)
         {
-            if (string.IsNullOrEmpty(pilot.id)) pilot.id = fallbackId;
-            if (string.IsNullOrEmpty(pilot.name)) pilot.name = fallbackName;
-            return pilot;
+            if (string.IsNullOrEmpty(character.id)) character.id = fallbackId;
+            if (string.IsNullOrEmpty(character.name)) character.name = fallbackName;
+            if (character.tier <= 0) character.tier = fallbackTier;
+            return character;
         }
 
-        if (!string.IsNullOrEmpty(skill) || pilot_bonuses != null || health > 0)
+        return new CharacterData
         {
-            return new PilotData
-            {
-                id = fallbackId,
-                name = fallbackName,
-                health = health,
-                skill = skill,
-                bonuses = pilot_bonuses
-            };
-        }
-
-        return null;
+            id = fallbackId,
+            name = fallbackName,
+            tier = fallbackTier,
+            health = health
+        };
     }
 
-    public MechaData AsMecha(string fallbackId = null, string fallbackName = null)
+    public SupportCardData AsSupportCard(string fallbackId = null, string fallbackName = null, int fallbackTier = 1)
     {
-        if (mecha != null)
+        if (support_card != null)
         {
-            if (string.IsNullOrEmpty(mecha.id)) mecha.id = fallbackId;
-            if (string.IsNullOrEmpty(mecha.name)) mecha.name = fallbackName;
-            return mecha;
+            if (string.IsNullOrEmpty(support_card.id)) support_card.id = fallbackId;
+            if (string.IsNullOrEmpty(support_card.name)) support_card.name = fallbackName;
+            if (support_card.tier <= 0) support_card.tier = fallbackTier;
+            return support_card;
         }
 
-        if (module_slots != null || armor > 0 || shield > 0 || damage > 0 || fire_rate > 0)
+        return new SupportCardData
         {
-            return new MechaData
-            {
-                id = fallbackId,
-                name = fallbackName,
-                health = health,
-                armor = armor,
-                shield = shield,
-                range = range,
-                damage = damage,
-                fire_rate = fire_rate,
-                module_slots = module_slots
-            };
-        }
-
-        return null;
-    }
-
-    public ModuleData AsModule(string fallbackId = null, string fallbackName = null)
-    {
-        if (module != null)
-        {
-            if (string.IsNullOrEmpty(module.id)) module.id = fallbackId;
-            if (string.IsNullOrEmpty(module.name)) module.name = fallbackName;
-            return module;
-        }
-
-        if (!string.IsNullOrEmpty(slot_color) || module_bonuses != null)
-        {
-            return new ModuleData
-            {
-                id = fallbackId,
-                name = fallbackName,
-                slot_color = slot_color,
-                bonuses = module_bonuses
-            };
-        }
-
-        return null;
+            id = fallbackId,
+            name = fallbackName,
+            tier = fallbackTier,
+            level = 1,
+            skills = skills
+        };
     }
 }
 
@@ -203,46 +136,64 @@ public class GachaReward
     public string awarded_at;
     public string id;
     public string name;
-    public string tier;
+    public int tier; // 1 (Common / 1-star), 2 (Rare / 2-star), 3 (Super Rare / 3-star)
     public string type;
     public GachaRewardData data;
 
-    // Root-level nested objects if sent directly
-    public PilotData pilot;
-    public MechaData mecha;
-    public ModuleData module;
+    public CharacterData character;
+    public SupportCardData support_card;
 
-    public PilotData GetPilot()
+    public int TierInt => tier > 0 ? tier : 1;
+
+    public bool IsSupportCard()
     {
-        if (pilot != null)
-        {
-            if (string.IsNullOrEmpty(pilot.id)) pilot.id = id;
-            if (string.IsNullOrEmpty(pilot.name)) pilot.name = name;
-            return pilot;
-        }
-        return data != null ? data.AsPilot(id, name) : null;
+        if (!string.IsNullOrEmpty(type) && (type.Equals("support_card", StringComparison.OrdinalIgnoreCase) || type.Equals("sc", StringComparison.OrdinalIgnoreCase)))
+            return true;
+        if (id != null && id.StartsWith("sc_", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (data != null && data.skills != null && data.skills.Length > 0)
+            return true;
+        return false;
     }
 
-    public MechaData GetMecha()
+    public CharacterData GetCharacter()
     {
-        if (mecha != null)
+        if (character != null)
         {
-            if (string.IsNullOrEmpty(mecha.id)) mecha.id = id;
-            if (string.IsNullOrEmpty(mecha.name)) mecha.name = name;
-            return mecha;
+            if (string.IsNullOrEmpty(character.id)) character.id = id;
+            if (string.IsNullOrEmpty(character.name)) character.name = name;
+            if (character.tier <= 0) character.tier = TierInt;
+            return character;
         }
-        return data != null ? data.AsMecha(id, name) : null;
+        return data != null ? data.AsCharacter(id, name, TierInt) : new CharacterData { id = id, name = name, tier = TierInt, health = 0 };
     }
 
-    public ModuleData GetModule()
+    public SupportCardData GetSupportCard()
     {
-        if (module != null)
+        if (support_card != null)
         {
-            if (string.IsNullOrEmpty(module.id)) module.id = id;
-            if (string.IsNullOrEmpty(module.name)) module.name = name;
-            return module;
+            if (string.IsNullOrEmpty(support_card.id)) support_card.id = id;
+            if (string.IsNullOrEmpty(support_card.name)) support_card.name = name;
+            if (support_card.tier <= 0) support_card.tier = TierInt;
+            return support_card;
         }
-        return data != null ? data.AsModule(id, name) : null;
+        return data != null ? data.AsSupportCard(id, name, TierInt) : new SupportCardData { id = id, name = name, tier = TierInt, level = 1, skills = Array.Empty<string>() };
+    }
+
+    public string GetTierDisplay(bool asStars = false)
+    {
+        if (asStars || !IsSupportCard())
+        {
+            return $"{TierInt} star";
+        }
+
+        switch (TierInt)
+        {
+            case 1: return "Common";
+            case 2: return "Rare";
+            case 3: return "Super Rare";
+            default: return $"Tier {TierInt}";
+        }
     }
 }
 
@@ -251,6 +202,8 @@ public class GachaResponse
 {
     public bool success;
     public string player_id;
+    public string target;
+    public int pack_cost;
     public GachaReward[] rewards;
     public PlayerStats stats;
 }

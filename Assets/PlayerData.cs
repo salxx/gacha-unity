@@ -50,9 +50,8 @@ public class PlayerData
     public PlayerStats stats;
 
     public List<GachaReward> rewards = new List<GachaReward>();
-    public List<PilotData> pilots = new List<PilotData>();
-    public List<MechaData> mechas = new List<MechaData>();
-    public List<ModuleData> modules = new List<ModuleData>();
+    public List<CharacterData> characters = new List<CharacterData>();
+    public List<SupportCardData> supportCards = new List<SupportCardData>();
 
     public int Tokens
     {
@@ -146,24 +145,13 @@ public class PlayerData
         if (reward == null) return;
         rewards.Add(reward);
 
-        string type = reward.type != null ? reward.type.ToLowerInvariant() : string.Empty;
-
-        PilotData p = reward.GetPilot();
-        if (p != null || type == "pilot")
+        if (reward.IsSupportCard())
         {
-            pilots.Add(p ?? new PilotData { id = reward.id, name = reward.name });
+            supportCards.Add(reward.GetSupportCard());
         }
-
-        MechaData m = reward.GetMecha();
-        if (m != null || type == "mecha")
+        else
         {
-            mechas.Add(m ?? new MechaData { id = reward.id, name = reward.name });
-        }
-
-        ModuleData mod = reward.GetModule();
-        if (mod != null || type == "module")
-        {
-            modules.Add(mod ?? new ModuleData { id = reward.id, name = reward.name });
+            characters.Add(reward.GetCharacter());
         }
     }
 

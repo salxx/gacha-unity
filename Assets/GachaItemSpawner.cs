@@ -54,6 +54,16 @@ public class GachaItemSpawner : MonoBehaviour
     [SerializeField] private GameObject rarePrefab;
     [SerializeField] private GameObject superRarePrefab;
 
+    [Header("Audio Clips Per Tier")]
+    [Tooltip("Audio clip played for common rarity pulls.")]
+    [SerializeField] private AudioClip commonAudioClip;
+
+    [Tooltip("Audio clip played for rare rarity pulls.")]
+    [SerializeField] private AudioClip rareAudioClip;
+
+    [Tooltip("Audio clip played for super rare rarity pulls.")]
+    [SerializeField] private AudioClip superRareAudioClip;
+
     [Header("Reward Info / UI Canvas")]
     [Tooltip("Prefab containing a Canvas with a TMP_Text child to display reward name and <type> (used for Line strategy).")]
     [SerializeField] private GameObject rewardCanvasPrefab;
@@ -108,6 +118,7 @@ public class GachaItemSpawner : MonoBehaviour
     private bool isRevealing = false;
     private Coroutine currentRevealCoroutine;
     private GameObject activePlaceholder;
+    private AudioSource audioSource;
 
     public IReadOnlyList<GameObject> CurrentSpawnedItems => currentSpawnedItems;
     public IReadOnlyList<GameObject> SpawnedIndicatorObjects => spawnedIndicatorObjects;
@@ -163,6 +174,60 @@ public class GachaItemSpawner : MonoBehaviour
     {
         get => superRareColor;
         set => superRareColor = value;
+    }
+
+    public AudioClip CommonAudioClip
+    {
+        get => commonAudioClip;
+        set => commonAudioClip = value;
+    }
+
+    public AudioClip RareAudioClip
+    {
+        get => rareAudioClip;
+        set => rareAudioClip = value;
+    }
+
+    public AudioClip SuperRareAudioClip
+    {
+        get => superRareAudioClip;
+        set => superRareAudioClip = value;
+    }
+
+    public AudioClip CommonAudio
+    {
+        get => commonAudioClip;
+        set => commonAudioClip = value;
+    }
+
+    public AudioClip RareAudio
+    {
+        get => rareAudioClip;
+        set => rareAudioClip = value;
+    }
+
+    public AudioClip SuperRareAudio
+    {
+        get => superRareAudioClip;
+        set => superRareAudioClip = value;
+    }
+
+    public AudioClip SrAudioClip
+    {
+        get => superRareAudioClip;
+        set => superRareAudioClip = value;
+    }
+
+    public AudioClip SrAudio
+    {
+        get => superRareAudioClip;
+        set => superRareAudioClip = value;
+    }
+
+    public AudioSource AudioSource
+    {
+        get => audioSource;
+        set => audioSource = value;
     }
 
     public SpawnStrategy Strategy
@@ -294,6 +359,16 @@ public class GachaItemSpawner : MonoBehaviour
 
     private void Awake()
     {
+        if (audioSource == null)
+        {
+            audioSource = GetComponent<AudioSource>();
+            if (audioSource == null)
+            {
+                audioSource = gameObject.AddComponent<AudioSource>();
+                audioSource.playOnAwake = false;
+            }
+        }
+
         nextButton.onClick.AddListener(OnNextButtonClicked);
         nextButton.gameObject.SetActive(false);
         nextPullToggle.gameObject.SetActive(false);
@@ -421,7 +496,7 @@ public class GachaItemSpawner : MonoBehaviour
     }
 
     /// <summary>
-    /// Resolves color based on tier name (e.g., 'common', 'rare', 'super_rare').
+    /// Resolves color based on tier (int or string, e.g. 1/2/3 or 'common', 'rare', 'super_rare').
     /// </summary>
     public Color GetColorForTier(string tier)
     {
@@ -434,12 +509,18 @@ public class GachaItemSpawner : MonoBehaviour
 
         switch (normalizedTier)
         {
+            case "1":
             case "common":
+            case "c":
                 return commonColor;
+            case "2":
             case "rare":
+            case "r":
                 return rareColor;
+            case "3":
             case "super_rare":
             case "superrare":
+            case "sr":
                 return superRareColor;
             default:
                 Debug.LogWarning($"Unknown tier '{tier}', falling back to common color.");
@@ -447,8 +528,19 @@ public class GachaItemSpawner : MonoBehaviour
         }
     }
 
+    public Color GetColorForTier(int tier)
+    {
+        switch (tier)
+        {
+            case 1: return commonColor;
+            case 2: return rareColor;
+            case 3: return superRareColor;
+            default: return commonColor;
+        }
+    }
+
     /// <summary>
-    /// Resolves prefab based on tier name (e.g., 'common', 'rare', 'super_rare').
+    /// Resolves prefab based on tier (int or string, e.g. 1/2/3 or 'common', 'rare', 'super_rare').
     /// </summary>
     public GameObject GetPrefabForTier(string tier)
     {
@@ -461,18 +553,135 @@ public class GachaItemSpawner : MonoBehaviour
 
         switch (normalizedTier)
         {
+            case "1":
             case "common":
+            case "c":
                 return commonPrefab;
+            case "2":
             case "rare":
+            case "r":
                 return rarePrefab;
+            case "3":
             case "super_rare":
             case "superrare":
+            case "sr":
                 return superRarePrefab;
             default:
                 Debug.LogWarning($"Unknown tier '{tier}', falling back to common prefab.");
                 return commonPrefab;
         }
     }
+
+    public GameObject GetPrefabForTier(int tier)
+    {
+        switch (tier)
+        {
+            case 1: return commonPrefab;
+            case 2: return rarePrefab;
+            case 3: return superRarePrefab;
+            default: return commonPrefab;
+        }
+    }
+
+    /// <summary>
+    /// Resolves audio clip based on tier (int or string, e.g. 1/2/3 or 'common', 'rare', 'super_rare', 'sr').
+    /// </summary>
+    public AudioClip GetAudioClipForTier(string tier)
+    {
+        if (string.IsNullOrWhiteSpace(tier))
+        {
+            return commonAudioClip;
+        }
+
+        string normalizedTier = tier.Trim().ToLowerInvariant().Replace(" ", "_").Replace("-", "_");
+
+        switch (normalizedTier)
+        {
+            case "1":
+            case "common":
+            case "c":
+                return commonAudioClip;
+            case "2":
+            case "rare":
+            case "r":
+                return rareAudioClip;
+            case "3":
+            case "super_rare":
+            case "superrare":
+            case "sr":
+                return superRareAudioClip;
+            default:
+                Debug.LogWarning($"Unknown tier '{tier}', falling back to common audio clip.");
+                return commonAudioClip;
+        }
+    }
+
+    public AudioClip GetAudioClipForTier(int tier)
+    {
+        switch (tier)
+        {
+            case 1: return commonAudioClip;
+            case 2: return rareAudioClip;
+            case 3: return superRareAudioClip;
+            default: return commonAudioClip;
+        }
+    }
+
+    /// <summary>
+    /// Alias for GetAudioClipForTier.
+    /// </summary>
+    public AudioClip GetAudioForTier(string tier) => GetAudioClipForTier(tier);
+    public AudioClip GetAudioForTier(int tier) => GetAudioClipForTier(tier);
+
+    /// <summary>
+    /// Plays the assigned audio clip using the attached AudioSource or PlayClipAtPoint fallback.
+    /// </summary>
+    public void PlayAudio(AudioClip clip)
+    {
+        if (clip == null)
+        {
+            return;
+        }
+
+        if (audioSource == null)
+        {
+            audioSource = GetComponent<AudioSource>();
+            if (audioSource == null && gameObject != null)
+            {
+                audioSource = gameObject.AddComponent<AudioSource>();
+                audioSource.playOnAwake = false;
+            }
+        }
+
+        if (audioSource != null)
+        {
+            audioSource.PlayOneShot(clip);
+        }
+        else
+        {
+            AudioSource.PlayClipAtPoint(clip, transform.position);
+        }
+    }
+
+    /// <summary>
+    /// Plays the audio clip associated with the specified reward tier.
+    /// </summary>
+    public void PlayAudioForTier(string tier)
+    {
+        AudioClip clip = GetAudioClipForTier(tier);
+        PlayAudio(clip);
+    }
+
+    public void PlayAudioForTier(int tier)
+    {
+        AudioClip clip = GetAudioClipForTier(tier);
+        PlayAudio(clip);
+    }
+
+    public void PlayCommonAudio() => PlayAudio(commonAudioClip);
+    public void PlayRareAudio() => PlayAudio(rareAudioClip);
+    public void PlaySuperRareAudio() => PlayAudio(superRareAudioClip);
+    public void PlaySRAudio() => PlayAudio(superRareAudioClip);
 
     /// <summary>
     /// Spawns pull indicator images aligned horizontally on the assigned canvas.
@@ -590,6 +799,18 @@ public class GachaItemSpawner : MonoBehaviour
         }
     }
 
+    private void UpdateIndicatorColor(int index, int tier)
+    {
+        if (index >= 0 && index < spawnedIndicatorImages.Count)
+        {
+            Image img = spawnedIndicatorImages[index];
+            if (img != null)
+            {
+                img.color = GetColorForTier(tier);
+            }
+        }
+    }
+
     /// <summary>
     /// Spawns game objects for the rewards according to the selected strategy.
     /// Existing items are destroyed and replaced.
@@ -642,7 +863,12 @@ public class GachaItemSpawner : MonoBehaviour
         }
 
         string normalizedTier = tier.Trim().ToLowerInvariant().Replace(" ", "_").Replace("-", "_");
-        return normalizedTier != "common";
+        return normalizedTier != "common" && normalizedTier != "1" && normalizedTier != "c";
+    }
+
+    public bool IsRareOrHigher(int tier)
+    {
+        return tier >= 2;
     }
 
     /// <summary>
@@ -720,10 +946,12 @@ public class GachaItemSpawner : MonoBehaviour
             DisplayRewardAt(index);
             if (queuedRewards != null && index >= 0 && index < queuedRewards.Length)
             {
+                var r = queuedRewards[index];
                 maxRevealedIndex = Mathf.Max(maxRevealedIndex, index);
                 currentRewardIndex = index;
-                UpdateIndicatorColor(index, queuedRewards[index]?.tier);
+                UpdateIndicatorColor(index, r != null ? r.TierInt : 1);
                 EnableIndicatorButton(index, true);
+                PlayAudioForTier(r != null ? r.TierInt : 1);
             }
         }
     }
@@ -745,7 +973,8 @@ public class GachaItemSpawner : MonoBehaviour
         while (queuedRewards != null && currentIndex < queuedRewards.Length)
         {
             GachaReward reward = queuedRewards[currentIndex];
-            bool isCommon = !IsRareOrHigher(reward?.tier);
+            int rewardTier = reward != null ? reward.TierInt : 1;
+            bool isCommon = !IsRareOrHigher(rewardTier);
             bool skipThisCommon = isCommon && IsSkipCommonsActive;
 
             HideRewardInfoText();
@@ -787,23 +1016,20 @@ public class GachaItemSpawner : MonoBehaviour
                             popScale = Mathf.Sin(popT * Mathf.PI * 0.5f);
                         }
 
-                        // Tension pulse building up in frequency and amplitude
+                        // Tension pulse building up in frequency and amplitude (compress and expand)
                         float pulseFreq = Mathf.Lerp(8f, 32f, t);
-                        float pulseAmp = Mathf.Lerp(0.04f, 0.18f, t);
-                        float pulse = 1f + Mathf.Sin(elapsed * pulseFreq) * pulseAmp;
+                        float pulseAmp = Mathf.Lerp(0.08f, 0.35f, t);
+                        // Scale compress/expand in sync along axes to generate dramatic tension
+                        float pulse = Mathf.Sin(elapsed * pulseFreq);
+                        float uniformScale = popScale * (1f + pulse * pulseAmp);
 
-                        placeholder.transform.localScale = Vector3.one * (popScale * pulse);
+                        placeholder.transform.localScale = new Vector3(uniformScale, uniformScale, uniformScale);
 
                         // Float bobbing and tension rumble shake
                         float bob = Mathf.Sin(elapsed * 7f) * 0.12f;
                         float shakeStrength = Mathf.Lerp(0f, 0.09f, t * t);
                         Vector3 shake = UnityEngine.Random.insideUnitSphere * shakeStrength;
                         placeholder.transform.position = basePos + new Vector3(0f, bob, 0f) + shake;
-
-                        // Accelerating dramatic spin
-                        float spinSpeed = Mathf.Lerp(100f, 650f, t);
-                        placeholder.transform.Rotate(Vector3.up, spinSpeed * Time.deltaTime, Space.World);
-                        placeholder.transform.Rotate(Vector3.right, spinSpeed * 0.4f * Time.deltaTime, Space.Self);
                     }
 
                     yield return null;
@@ -840,6 +1066,7 @@ public class GachaItemSpawner : MonoBehaviour
             currentDisplayedIndex = currentIndex;
 
             GameObject rewardObj = SpawnRewardItem(reward, spawnCoordinates, currentIndex);
+            PlayAudioForTier(rewardTier);
 
             // Reward entrance pop-in animation
             if (animateRewardPopIn && rewardPopInDuration > 0f && rewardObj != null)
@@ -868,7 +1095,7 @@ public class GachaItemSpawner : MonoBehaviour
             }
 
             // Update UI indicator to revealed color and enable clicking now that the reward spawn animation is done
-            UpdateIndicatorColor(currentIndex, reward?.tier);
+            UpdateIndicatorColor(currentIndex, rewardTier);
             EnableIndicatorButton(currentIndex, true);
             if (strategy == SpawnStrategy.SingleItemOnClick)
             {
@@ -904,102 +1131,90 @@ public class GachaItemSpawner : MonoBehaviour
     }
 
     /// <summary>
-    /// Generates a stylized procedural placeholder object for anticipation build-up when no prefab is provided.
+    /// Generates a stylized procedural 2D circle placeholder object for anticipation build-up when no prefab is provided.
+    /// Creates a 2D disc / circle facing the camera in 2.5D space that can spin like a papercut model.
     /// </summary>
     private GameObject CreateProceduralPlaceholder(Vector3 position)
     {
-        GameObject placeholder = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        placeholder.name = "Anticipation_Placeholder";
+        GameObject placeholder = new GameObject("Anticipation_Placeholder");
         placeholder.transform.position = position;
         placeholder.transform.localScale = Vector3.zero;
 
-        Collider col = placeholder.GetComponent<Collider>();
-        if (col != null)
+        MeshFilter mf = placeholder.AddComponent<MeshFilter>();
+        mf.mesh = CreateCircleMesh(1f, 32);
+
+        MeshRenderer rend = placeholder.AddComponent<MeshRenderer>();
+        if (anticipationMaterial != null)
         {
-            Destroy(col);
+            rend.material = anticipationMaterial;
         }
-
-        Renderer rend = placeholder.GetComponent<Renderer>();
-        if (rend != null)
+        else
         {
-            if (anticipationMaterial != null)
+            Material mat = null;
+            if (superRarePrefab != null)
             {
-                rend.material = anticipationMaterial;
+                Renderer srRend = superRarePrefab.GetComponentInChildren<Renderer>();
+                if (srRend != null && srRend.sharedMaterial != null)
+                {
+                    mat = new Material(srRend.sharedMaterial);
+                }
             }
-            else
+
+            if (mat == null)
             {
-                Material mat = null;
-                if (superRarePrefab != null)
+                Shader shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard") ?? Shader.Find("Diffuse");
+                if (shader != null)
                 {
-                    Renderer srRend = superRarePrefab.GetComponentInChildren<Renderer>();
-                    if (srRend != null && srRend.sharedMaterial != null)
-                    {
-                        mat = new Material(srRend.sharedMaterial);
-                    }
+                    mat = new Material(shader);
                 }
+            }
 
-                if (mat == null)
-                {
-                    Shader shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard") ?? Shader.Find("Diffuse");
-                    if (shader != null)
-                    {
-                        mat = new Material(shader);
-                    }
-                }
-
-                if (mat != null)
-                {
-                    mat.color = new Color(0.18f, 0.20f, 0.26f, 1f);
-                    rend.material = mat;
-                }
+            if (mat != null)
+            {
+                mat.color = new Color(0.18f, 0.20f, 0.26f, 1f);
+                rend.material = mat;
             }
         }
 
-        // Add an inner glowing accent core
-        GameObject innerCore = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        innerCore.name = "Anticipation_Core";
+        // Add an inner glowing accent circle
+        GameObject innerCore = new GameObject("Anticipation_Core");
         innerCore.transform.SetParent(placeholder.transform, false);
-        innerCore.transform.localPosition = Vector3.zero;
+        innerCore.transform.localPosition = new Vector3(0f, 0f, -0.01f);
         innerCore.transform.localScale = Vector3.one * 0.55f;
-        Collider innerCol = innerCore.GetComponent<Collider>();
-        if (innerCol != null)
+
+        MeshFilter innerMf = innerCore.AddComponent<MeshFilter>();
+        innerMf.mesh = CreateCircleMesh(1f, 32);
+
+        MeshRenderer innerRend = innerCore.AddComponent<MeshRenderer>();
+        if (anticipationMaterial != null)
         {
-            Destroy(innerCol);
+            innerRend.material = anticipationMaterial;
         }
-
-        Renderer innerRend = innerCore.GetComponent<Renderer>();
-        if (innerRend != null)
+        else
         {
-            if (anticipationMaterial != null)
+            Material coreMat = null;
+            if (rarePrefab != null)
             {
-                innerRend.material = anticipationMaterial;
+                Renderer rRend = rarePrefab.GetComponentInChildren<Renderer>();
+                if (rRend != null && rRend.sharedMaterial != null)
+                {
+                    coreMat = new Material(rRend.sharedMaterial);
+                }
             }
-            else
+
+            if (coreMat == null)
             {
-                Material coreMat = null;
-                if (rarePrefab != null)
+                Shader shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard") ?? Shader.Find("Diffuse");
+                if (shader != null)
                 {
-                    Renderer rRend = rarePrefab.GetComponentInChildren<Renderer>();
-                    if (rRend != null && rRend.sharedMaterial != null)
-                    {
-                        coreMat = new Material(rRend.sharedMaterial);
-                    }
+                    coreMat = new Material(shader);
                 }
+            }
 
-                if (coreMat == null)
-                {
-                    Shader shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard") ?? Shader.Find("Diffuse");
-                    if (shader != null)
-                    {
-                        coreMat = new Material(shader);
-                    }
-                }
-
-                if (coreMat != null)
-                {
-                    coreMat.color = new Color(0.95f, 0.85f, 0.25f, 1f);
-                    innerRend.material = coreMat;
-                }
+            if (coreMat != null)
+            {
+                coreMat.color = new Color(0.95f, 0.85f, 0.25f, 1f);
+                innerRend.material = coreMat;
             }
         }
 
@@ -1007,13 +1222,84 @@ public class GachaItemSpawner : MonoBehaviour
     }
 
     /// <summary>
+    /// Creates a 2D double-sided circular disc mesh with normal and UV coordinates.
+    /// </summary>
+    private static Mesh CreateCircleMesh(float radius, int segments)
+    {
+        Mesh mesh = new Mesh();
+        mesh.name = "Procedural_Circle2D";
+
+        int vertexCount = segments + 1;
+        Vector3[] vertices = new Vector3[vertexCount * 2];
+        Vector3[] normals = new Vector3[vertexCount * 2];
+        Vector2[] uvs = new Vector2[vertexCount * 2];
+
+        // Front face center
+        vertices[0] = Vector3.zero;
+        normals[0] = -Vector3.forward;
+        uvs[0] = new Vector2(0.5f, 0.5f);
+
+        // Back face center
+        vertices[vertexCount] = Vector3.zero;
+        normals[vertexCount] = Vector3.forward;
+        uvs[vertexCount] = new Vector2(0.5f, 0.5f);
+
+        float angleStep = (Mathf.PI * 2f) / segments;
+        for (int i = 0; i < segments; i++)
+        {
+            float angle = i * angleStep;
+            float cos = Mathf.Cos(angle);
+            float sin = Mathf.Sin(angle);
+
+            Vector3 pos = new Vector3(cos * radius, sin * radius, 0f);
+            Vector2 uv = new Vector2((cos + 1f) * 0.5f, (sin + 1f) * 0.5f);
+
+            // Front
+            vertices[i + 1] = pos;
+            normals[i + 1] = -Vector3.forward;
+            uvs[i + 1] = uv;
+
+            // Back
+            vertices[vertexCount + i + 1] = pos;
+            normals[vertexCount + i + 1] = Vector3.forward;
+            uvs[vertexCount + i + 1] = uv;
+        }
+
+        int[] triangles = new int[segments * 3 * 2];
+        for (int i = 0; i < segments; i++)
+        {
+            int next = (i + 1) % segments;
+
+            // Front face (clockwise)
+            triangles[i * 3 + 0] = 0;
+            triangles[i * 3 + 1] = i + 1;
+            triangles[i * 3 + 2] = next + 1;
+
+            // Back face (counter-clockwise)
+            int backOffset = segments * 3;
+            triangles[backOffset + i * 3 + 0] = vertexCount;
+            triangles[backOffset + i * 3 + 1] = vertexCount + next + 1;
+            triangles[backOffset + i * 3 + 2] = vertexCount + i + 1;
+        }
+
+        mesh.vertices = vertices;
+        mesh.normals = normals;
+        mesh.uv = uvs;
+        mesh.triangles = triangles;
+        mesh.RecalculateBounds();
+
+        return mesh;
+    }
+
+    /// <summary>
     /// Instantiates a reward prefab (or placeholder) at the given world position and attaches the canvas.
     /// </summary>
     private GameObject SpawnRewardItem(GachaReward reward, Vector3 worldPos, int index)
     {
-        GameObject prefab = GetPrefabForTier(reward?.tier);
+        int tierInt = reward != null ? reward.TierInt : 1;
+        GameObject prefab = GetPrefabForTier(tierInt);
         GameObject itemInstance;
-        string itemName = $"Reward_{index + 1}_{reward?.tier ?? "Unknown"}_{reward?.id ?? "Item"}";
+        string itemName = $"Reward_{index + 1}_Tier{tierInt}_{reward?.id ?? "Item"}";
 
         if (prefab != null)
         {
@@ -1022,7 +1308,7 @@ public class GachaItemSpawner : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning($"No prefab available for tier '{reward?.tier}' at reward index {index}. Creating placeholder empty GameObject.");
+            Debug.LogWarning($"No prefab available for tier '{tierInt}' at reward index {index}. Creating placeholder empty GameObject.");
             itemInstance = new GameObject(itemName);
             itemInstance.transform.position = worldPos;
             itemInstance.transform.rotation = Quaternion.identity;
@@ -1031,6 +1317,37 @@ public class GachaItemSpawner : MonoBehaviour
         AttachRewardInfoCanvas(itemInstance, reward);
         currentSpawnedItems.Add(itemInstance);
         return itemInstance;
+    }
+
+    private string FormatRewardLabel(GachaReward reward)
+    {
+        if (reward == null) return string.Empty;
+        string nameStr = !string.IsNullOrEmpty(reward.name) ? reward.name : "Unknown";
+        string typeStr = !string.IsNullOrEmpty(reward.type)
+            ? reward.type
+            : (reward.IsSupportCard() ? "Support Card" : "Character");
+
+        if (reward.IsSupportCard())
+        {
+            var sc = reward.GetSupportCard();
+            string tierStr = sc.GetTierDisplayName(); // C, R, SR
+            int maxLvl = sc.MaxLevel;
+            if (sc?.skills != null && sc.skills.Length > 0)
+            {
+                return $"{nameStr} [{tierStr} | Max Lv.{maxLvl}]\n<{typeStr}> ({string.Join(", ", sc.skills)})";
+            }
+            return $"{nameStr} [{tierStr} | Max Lv.{maxLvl}]\n<{typeStr}>";
+        }
+        else
+        {
+            var ch = reward.GetCharacter();
+            string stars = ch.GetTierDisplayName(); // e.g., "1★", "2★", "3★"
+            if (ch != null && ch.health > 0)
+            {
+                return $"{nameStr} [{stars}]\n<{typeStr}> (HP: {ch.health})";
+            }
+            return $"{nameStr} [{stars}]\n<{typeStr}>";
+        }
     }
 
     /// <summary>
@@ -1053,9 +1370,7 @@ public class GachaItemSpawner : MonoBehaviour
         TMP_Text textComponent = canvasInstance.GetComponentInChildren<TMP_Text>();
         if (textComponent != null)
         {
-            string nameStr = reward != null && !string.IsNullOrEmpty(reward.name) ? reward.name : string.Empty;
-            string typeStr = reward != null && !string.IsNullOrEmpty(reward.type) ? reward.type : string.Empty;
-            textComponent.text = $"{nameStr}\n<{typeStr}>";
+            textComponent.text = FormatRewardLabel(reward);
         }
         else
         {
@@ -1068,9 +1383,7 @@ public class GachaItemSpawner : MonoBehaviour
     /// </summary>
     public void UpdateRewardInfoText(GachaReward reward)
     {
-        string nameStr = reward != null && !string.IsNullOrEmpty(reward.name) ? reward.name : string.Empty;
-        string typeStr = reward != null && !string.IsNullOrEmpty(reward.type) ? reward.type : string.Empty;
-        rewardInfoText.text = $"{nameStr}\n<{typeStr}>";
+        rewardInfoText.text = FormatRewardLabel(reward);
         rewardInfoText.gameObject.SetActive(true);
     }
 

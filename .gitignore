@@ -15,6 +15,9 @@
 # Asset meta data should only be ignored if the corresponding asset is also ignored
 !/[Aa]ssets/**/*.meta
 
+/[Aa]ssets/SFX
+/Data/Plugins
+
 # Uncomment this line if you wish to ignore the asset store tools plugin
 # /[Aa]ssets/AssetStoreTools*
 

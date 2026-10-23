@@ -7,6 +7,7 @@ public class RotateScript : MonoBehaviour
 {
     [SerializeField] private float rotationSpeed = 0.5f;
     [SerializeField] private bool invert = false;
+    [SerializeField] private Vector3 axis = Vector3.up;
 
     private Vector2 lastMousePosition;
     private bool isDragging = false;
@@ -23,6 +24,12 @@ public class RotateScript : MonoBehaviour
         set => invert = value;
     }
 
+    public Vector3 Axis
+    {
+        get => axis;
+        set => axis = value;
+    }
+
     void Update()
     {
         bool isPressed = IsMouseButtonPressed();
@@ -34,7 +41,7 @@ public class RotateScript : MonoBehaviour
             {
                 Vector2 delta = currentMousePosition - lastMousePosition;
                 float direction = invert ? 1f : -1f;
-                transform.Rotate(0, 0, delta.x * rotationSpeed * direction);
+                transform.Rotate(axis, delta.x * rotationSpeed * direction);
             }
 
             lastMousePosition = currentMousePosition;

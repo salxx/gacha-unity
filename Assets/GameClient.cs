@@ -24,7 +24,6 @@ public class GameClient : MonoBehaviour
     public PlayerData CurrentPlayer => currentPlayer;
 
     [Header("Gacha")]
-    [SerializeField] private Button pullButton;
     [SerializeField] private GachaItemSpawner gachaSpawner;
 
     public string BackendUrl
@@ -39,24 +38,14 @@ public class GameClient : MonoBehaviour
         set => playerIdText = value;
     }
 
-    public Button PullButton
-    {
-        get => pullButton;
-        set => pullButton = value;
-    }
+    public event System.Action OnLoginSuccess;
+    public event System.Action OnPullStarted;
+    public event System.Action OnPullFailed;
 
-    public GachaItemSpawner GachaSpawner
+    public void TriggerPull(string banner = null)
     {
-        get => gachaSpawner;
-        set
-        {
-            if (gachaSpawner != value)
-            {
-                gachaSpawner.OnSequenceEnded -= HandleSequenceEnded;
-                gachaSpawner = value;
-                gachaSpawner.OnSequenceEnded += HandleSequenceEnded;
-            }
-        }
+        OnPullStarted?.Invoke();
+        StartCoroutine(PullGachaPack(banner));
     }
 
     private void Start()
@@ -64,42 +53,11 @@ public class GameClient : MonoBehaviour
         StartCoroutine(CheckHealth());
 
         connectButton.onClick.AddListener(OnConnectButtonClicked);
-        pullButton.onClick.AddListener(OnPullButtonClicked);
-        pullButton.gameObject.SetActive(false);
-        gachaSpawner.OnSequenceEnded += HandleSequenceEnded;
     }
 
     private void OnDestroy()
     {
         connectButton.onClick.RemoveListener(OnConnectButtonClicked);
-        pullButton.onClick.RemoveListener(OnPullButtonClicked);
-        gachaSpawner.OnSequenceEnded -= HandleSequenceEnded;
-    }
-
-    private void HandleSequenceEnded()
-    {
-        if (currentPlayer != null && !string.IsNullOrEmpty(currentPlayer.playerId))
-        {
-            pullButton.gameObject.SetActive(true);
-        }
-    }
-
-    public void OnPullButtonClicked()
-    {
-        // Rejection check when local tokens do not suffice
-        if (currentPlayer != null && currentPlayer.Tokens < PackCost)
-        {
-            UpdatePlayerInfoUI($"Insufficient tokens ({PackCost} tokens required)");
-            if (!gachaSpawner.IsSequenceActive)
-            {
-                pullButton.gameObject.SetActive(true);
-            }
-            return;
-        }
-
-        pullButton.gameObject.SetActive(false);
-
-        StartCoroutine(PullGachaPack());
     }
 
     public void OnConnectButtonClicked()
@@ -259,10 +217,7 @@ public class GameClient : MonoBehaviour
 
                 UpdatePlayerInfoUI();
 
-                if (!gachaSpawner.IsSequenceActive)
-                {
-                    pullButton.gameObject.SetActive(true);
-                }
+                OnLoginSuccess?.Invoke();
 
                 // Query /player-stats to retrieve the player's stored name and synced stats
                 StartCoroutine(FetchPlayerStats(currentPlayer.playerId));
@@ -270,15 +225,18 @@ public class GameClient : MonoBehaviour
         }
     }
 
-    private IEnumerator PullGachaPack()
+    private IEnumerator PullGachaPack(string target = null)
     {
+        string targetBanner = !string.IsNullOrEmpty(target) ? target : "character";
+
         string playerId = currentPlayer != null && !string.IsNullOrEmpty(currentPlayer.playerId)
             ? currentPlayer.playerId
             : GetPlayerId();
 
+        string targetParam = $"target={UnityWebRequest.EscapeURL(targetBanner.Trim())}";
         string url = string.IsNullOrEmpty(playerId)
-            ? $"{backendUrl.TrimEnd('/')}/gacha-pack"
-            : $"{backendUrl.TrimEnd('/')}/gacha-pack?player_id={UnityWebRequest.EscapeURL(playerId.Trim())}";
+            ? $"{backendUrl.TrimEnd('/')}/gacha-pack?{targetParam}"
+            : $"{backendUrl.TrimEnd('/')}/gacha-pack?player_id={UnityWebRequest.EscapeURL(playerId.Trim())}&{targetParam}";
 
         using (UnityWebRequest request = UnityWebRequest.Get(url))
         {
@@ -329,10 +287,7 @@ public class GameClient : MonoBehaviour
 
                 UpdatePlayerInfoUI(errorMessage);
 
-                if (!gachaSpawner.IsSequenceActive)
-                {
-                    pullButton.gameObject.SetActive(true);
-                }
+                OnPullFailed?.Invoke();
             }
             else
             {
@@ -372,23 +327,19 @@ public class GameClient : MonoBehaviour
                         }
 
                         gachaSpawner.AssembleRewards(response.rewards);
-                        if (gachaSpawner.Strategy != SpawnStrategy.SingleItemOnClick)
-                        {
-                            pullButton.gameObject.SetActive(true);
-                        }
                     }
                     else
                     {
                         Debug.LogWarning("Gacha response contained no rewards or could not be parsed.");
                         UpdatePlayerInfoUI("Invalid response from server.");
-                        pullButton.gameObject.SetActive(true);
+                        OnPullFailed?.Invoke();
                     }
                 }
                 catch (System.Exception ex)
                 {
                     Debug.LogError($"Failed to parse gacha response: {ex.Message}");
                     UpdatePlayerInfoUI("Failed to parse reward data.");
-                    pullButton.gameObject.SetActive(true);
+                    OnPullFailed?.Invoke();
                 }
             }
         }
