@@ -2,13 +2,6 @@
 using System.Collections.Generic;
 
 [Serializable]
-public class UserData
-{
-    public int tokens;
-    public int packs_opened;
-}
-
-[Serializable]
 public class PlayerStats
 {
     public string name;
@@ -22,7 +15,7 @@ public class ConnectResponse
 {
     public bool success;
     public string player_id;
-    public UserData userdata;
+    public PlayerStats stats;
 }
 
 [Serializable]
@@ -45,122 +38,33 @@ public class ErrorResponse
 public class PlayerData
 {
     public string playerId;
-    public string playerName;
-    public UserData userData = new UserData();
-    public PlayerStats stats;
+    public PlayerStats stats = new PlayerStats();
 
-    public List<GachaReward> rewards = new List<GachaReward>();
     public List<CharacterData> characters = new List<CharacterData>();
     public List<SupportCardData> supportCards = new List<SupportCardData>();
 
-    public int Tokens
-    {
-        get
-        {
-            if (stats != null)
-            {
-                return stats.tokens;
-            }
-            return userData != null ? userData.tokens : 0;
-        }
-        set
-        {
-            if (userData == null)
-            {
-                userData = new UserData();
-            }
-            userData.tokens = value;
-            if (stats != null)
-            {
-                stats.tokens = value;
-            }
-        }
-    }
+    public int Tokens => stats.tokens;
 
-    public int PacksOpened
-    {
-        get
-        {
-            if (stats != null)
-            {
-                return stats.packs_opened;
-            }
-            return userData != null ? userData.packs_opened : 0;
-        }
-        set
-        {
-            if (userData == null)
-            {
-                userData = new UserData();
-            }
-            userData.packs_opened = value;
-            if (stats != null)
-            {
-                stats.packs_opened = value;
-            }
-        }
-    }
-
-    public string DisplayName
-    {
-        get
-        {
-            if (stats != null && !string.IsNullOrEmpty(stats.name))
-            {
-                return stats.name;
-            }
-            if (!string.IsNullOrEmpty(playerName))
-            {
-                return playerName;
-            }
-            return playerId;
-        }
-    }
-
-    public PlayerData() { }
-
-    public PlayerData(string playerId, UserData userData)
-    {
-        this.playerId = playerId;
-        this.userData = userData ?? new UserData();
-    }
+    public string DisplayName => string.IsNullOrEmpty(stats.name) ? playerId : stats.name;
 
     public PlayerData(string playerId, PlayerStats stats)
     {
         this.playerId = playerId;
-        this.stats = stats;
-        if (stats != null)
+        this.stats = stats ?? new PlayerStats();
+    }
+
+    public void AddRewards(IEnumerable<GachaReward> rewards)
+    {
+        foreach (GachaReward reward in rewards)
         {
-            this.playerName = stats.name;
-            this.userData = new UserData
+            if (reward.IsSupportCard)
             {
-                tokens = stats.tokens,
-                packs_opened = stats.packs_opened
-            };
-        }
-    }
-
-    public void AddReward(GachaReward reward)
-    {
-        if (reward == null) return;
-        rewards.Add(reward);
-
-        if (reward.IsSupportCard())
-        {
-            supportCards.Add(reward.GetSupportCard());
-        }
-        else
-        {
-            characters.Add(reward.GetCharacter());
-        }
-    }
-
-    public void AddRewards(IEnumerable<GachaReward> newRewards)
-    {
-        if (newRewards == null) return;
-        foreach (var reward in newRewards)
-        {
-            AddReward(reward);
+                supportCards.Add(reward.ToSupportCard());
+            }
+            else
+            {
+                characters.Add(reward.ToCharacter());
+            }
         }
     }
 }

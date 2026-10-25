@@ -1,6 +1,120 @@
 ﻿using System;
-using System.Collections.Generic;
 using UnityEngine;
+
+/// <summary>
+/// Pull tiers as returned by the backend: 1 = Common / 1 star, 2 = Rare / 2 stars, 3 = Super Rare / 3 stars.
+/// </summary>
+public static class Tiers
+{
+    public const int Common = 1;
+    public const int Rare = 2;
+    public const int SuperRare = 3;
+
+    public static int Clamp(int tier) => Mathf.Clamp(tier, Common, SuperRare);
+
+
+    public static string ShortName(int tier) => Clamp(tier) switch
+    {
+        Rare => "R",
+        SuperRare => "SR",
+        _ => "C"
+    };
+}
+
+/// <summary>
+/// The 5 trainable traits. Also used for growth bonuses (in percent, e.g. 20 = +20%, -20 = -20%).
+/// </summary>
+[Serializable]
+public class Traits
+{
+    public int power;   // raw damage
+    public int agility; // attack speed / fire rate
+    public int impact;  // armor penetration
+    public int defense; // health and armor
+    public int finesse; // skill trigger and dodge chance
+
+    public int Total => power + agility + impact + defense + finesse;
+
+    public override string ToString() =>
+        $"POW {power} / AGI {agility} / IMP {impact} / DEF {defense} / FIN {finesse}";
+}
+
+/// <summary>
+/// Positional affinity grades (S, A, B, C, D, E, F) for the 4 ranges:
+/// front (Front Line), close (Close Range), mid (Mid Range), back (Back Line).
+/// At least one position is A by default; S is only reachable through play.
+/// </summary>
+[Serializable]
+public class PositionAffinity
+{
+    public string front = "F";
+    public string close = "F";
+    public string mid = "F";
+    public string back = "F";
+
+    // Index = rank: F (0) .. S (6)
+    private static readonly string[] Grades = { "F", "E", "D", "C", "B", "A", "S" };
+
+    public const string DefaultMax = "A";
+
+    public static int Rank(string grade)
+    {
+        int index = Array.IndexOf(Grades, grade?.Trim().ToUpperInvariant());
+        return index < 0 ? 0 : index;
+    }
+
+    public static string Grade(int rank) => Grades[Mathf.Clamp(rank, 0, Grades.Length - 1)];
+
+    /// <summary>Highest grade a position can ever reach from its starting grade: E/F cap at B, D needs deep commitment for A/S.</summary>
+    public static string Ceiling(string startGrade) => Rank(startGrade) <= Rank("E") ? "B" : "S";
+
+    /// <summary>Default affinity is valid if no grade is S and at least one is A.</summary>
+    public bool IsValidDefault()
+    {
+        int max = Mathf.Max(Mathf.Max(Rank(front), Rank(close)), Mathf.Max(Rank(mid), Rank(back)));
+        return max == Rank(DefaultMax);
+    }
+
+    public override string ToString() => $"Front {front} / Close {close} / Mid {mid} / Back {back}";
+}
+
+/// <summary>
+/// Unique gear of a character: boosts an effect linked to one trait (value in percent).
+/// </summary>
+[Serializable]
+public class GearData
+{
+    public string id;
+    public string name;
+    public string trait;  // "power" | "agility" | "impact" | "defense" | "finesse"
+    public string effect; // e.g. "penetration_damage", "armor", "skill_trigger"
+    public int value;
+}
+
+/// <summary>
+/// Baseline PvE formulas derived from traits.
+/// </summary>
+public static class TraitMath
+{
+    /// <summary>Applies a growth bonus (percent) to a raw training gain.</summary>
+    public static int ApplyGrowth(int gain, int growthPercent) =>
+        Mathf.Max(0, Mathf.RoundToInt(gain * (1f + growthPercent / 100f)));
+
+    public static float Damage(Traits t) => t.power;
+    public static float AttacksPerSecond(Traits t) => 0.5f + t.agility / 200f;
+    public static int MaxHealth(Traits t) => 100 + t.defense * 2;
+    public static float Armor(Traits t) => t.defense / 2f;
+    public static float Penetration(Traits t) => t.impact / 2f;
+    public static float SkillTriggerChance(Traits t) => Mathf.Clamp01(t.finesse / 1000f);
+    public static float DodgeChance(Traits t) => Mathf.Clamp(t.finesse / 2000f, 0f, 0.5f);
+
+    /// <summary>Damage reduction from armor left after penetration (armor / (armor + 100)).</summary>
+    public static float DamageReduction(float armor, float penetration)
+    {
+        float effective = Mathf.Max(0f, armor - penetration);
+        return effective / (effective + 100f);
+    }
+}
 
 [Serializable]
 public class CharacterData
@@ -8,27 +122,12 @@ public class CharacterData
     public string id;
     public string name;
     public int tier; // 1 to 5 stars (pulled at 1 to 3, upgradeable to 5)
-    public int health;
+    public Traits traits = new Traits();
+    public Traits growth = new Traits();
+    public PositionAffinity affinity = new PositionAffinity();
+    public GearData gear;
 
-    public int Tier => tier > 0 ? tier : 1;
-    public int Stars => Tier;
-    public int Health => health;
-
-    public string GetTierDisplayName()
-    {
-        return $"{Tier} star";
-    }
-
-    public string GetRarityName()
-    {
-        switch (Tier)
-        {
-            case 1: return "Common";
-            case 2: return "Rare";
-            case 3: return "Super Rare";
-            default: return "Super Rare";
-        }
-    }
+    public string StarsDisplay => $"{Mathf.Max(tier, 1)}★";
 }
 
 [Serializable]
@@ -36,163 +135,181 @@ public class SupportCardData
 {
     public string id;
     public string name;
-    public int tier; // Base rarity tier: 1 (C), 2 (R), 3 (SR)
+    public int tier; // 1 (C), 2 (R), 3 (SR)
+    public string facility; // "power" | "agility" | "impact" | "defense" | "finesse"
     public int level = 1;
-    public string[] skills;
+    public int bond = 20; // 0 to 100%
+    public string[] skills = Array.Empty<string>();
 
-    public int Tier => tier > 0 ? tier : 1;
-    public int Level => level > 0 ? level : 1;
-    public string[] Skills => skills;
+    public int MaxLevel => 20 + Tiers.Clamp(tier) * 10; // 30 / 40 / 50
+    public bool IsRainbowEligible => bond >= 80;
+}
 
-    public int MaxLevel
+[Serializable]
+public class FacilityPreview
+{
+    public string facility;
+    public int level;
+    public float failure_rate;
+    public int energy_cost;
+    public int energy_restore;
+    public string main_stat;
+    public int main_gain;
+    public string secondary_stat;
+    public int secondary_gain;
+    public bool rainbow_active;
+    public int rainbow_bonus_percent;
+    public string[] present_card_ids = Array.Empty<string>();
+}
+
+[Serializable]
+public class FacilityLevelMap
+{
+    public int power = 1;
+    public int agility = 1;
+    public int impact = 1;
+    public int defense = 1;
+    public int finesse = 1;
+
+    public int GetLevel(string facility) => facility?.ToLowerInvariant() switch
     {
-        get
-        {
-            switch (Tier)
-            {
-                case 1: return 30; // Common max lvl 30
-                case 2: return 40; // Rare max lvl 40
-                case 3: return 50; // Super Rare max lvl 50
-                default: return 30 + (Tier - 1) * 10;
-            }
-        }
-    }
+        "power" => power,
+        "agility" => agility,
+        "impact" => impact,
+        "defense" => defense,
+        "finesse" => finesse,
+        _ => 1
+    };
+}
 
-    public string GetTierDisplayName()
-    {
-        switch (Tier)
-        {
-            case 1: return "C";
-            case 2: return "R";
-            case 3: return "SR";
-            default: return $"T{Tier}";
-        }
-    }
+[Serializable]
+public class FacilityPreviewMap
+{
+    public FacilityPreview power;
+    public FacilityPreview agility;
+    public FacilityPreview impact;
+    public FacilityPreview defense;
+    public FacilityPreview finesse;
 
-    public string GetRarityName()
+    public FacilityPreview GetPreview(string facility) => facility?.ToLowerInvariant() switch
     {
-        switch (Tier)
-        {
-            case 1: return "Common";
-            case 2: return "Rare";
-            case 3: return "Super Rare";
-            default: return $"Tier {Tier}";
-        }
-    }
+        "power" => power,
+        "agility" => agility,
+        "impact" => impact,
+        "defense" => defense,
+        "finesse" => finesse,
+        _ => null
+    };
+}
+
+[Serializable]
+public class TrainingActionResult
+{
+    public string action;
+    public string facility;
+    public bool success;
+    public float failure_rate;
+    public string main_stat;
+    public int main_gain;
+    public string secondary_stat;
+    public int secondary_gain;
+    public int energy_consumed;
+    public int energy_recovered;
+    public int energy_after;
+    public bool rainbow_triggered;
+}
+
+[Serializable]
+public class TrainingRunData
+{
+    public string run_id;
+    public string player_id;
+    public string status; // "active" | "completed"
+    public int round = 1;
+    public int max_rounds = 36;
+    public int energy = 100;
+    public int max_energy = 100;
+    public CharacterData trainee;
+    public FacilityLevelMap facility_levels = new FacilityLevelMap();
+    public SupportCardData[] support_cards = Array.Empty<SupportCardData>();
+    public FacilityPreviewMap facility_previews = new FacilityPreviewMap();
+    public TrainingActionResult last_action_result;
+
+    public bool IsCompleted => status == "completed" || round > max_rounds;
+}
+
+[Serializable]
+public class TrainingResponse
+{
+    public bool success;
+    public TrainingRunData run;
+    public TrainingActionResult action_result;
 }
 
 [Serializable]
 public class GachaRewardData
 {
-    public int health;
+    public string facility;
+    public Traits base_traits;
+    public Traits growth;
+    public PositionAffinity affinity;
+    public GearData gear;
     public string[] skills;
-
-    public CharacterData character;
-    public SupportCardData support_card;
-
-    public CharacterData AsCharacter(string fallbackId = null, string fallbackName = null, int fallbackTier = 1)
-    {
-        if (character != null)
-        {
-            if (string.IsNullOrEmpty(character.id)) character.id = fallbackId;
-            if (string.IsNullOrEmpty(character.name)) character.name = fallbackName;
-            if (character.tier <= 0) character.tier = fallbackTier;
-            return character;
-        }
-
-        return new CharacterData
-        {
-            id = fallbackId,
-            name = fallbackName,
-            tier = fallbackTier,
-            health = health
-        };
-    }
-
-    public SupportCardData AsSupportCard(string fallbackId = null, string fallbackName = null, int fallbackTier = 1)
-    {
-        if (support_card != null)
-        {
-            if (string.IsNullOrEmpty(support_card.id)) support_card.id = fallbackId;
-            if (string.IsNullOrEmpty(support_card.name)) support_card.name = fallbackName;
-            if (support_card.tier <= 0) support_card.tier = fallbackTier;
-            return support_card;
-        }
-
-        return new SupportCardData
-        {
-            id = fallbackId,
-            name = fallbackName,
-            tier = fallbackTier,
-            level = 1,
-            skills = skills
-        };
-    }
 }
 
 [Serializable]
 public class GachaReward
 {
-    public string awarded_at;
+    public const string SupportCardType = "support_card";
+
     public string id;
     public string name;
-    public int tier; // 1 (Common / 1-star), 2 (Rare / 2-star), 3 (Super Rare / 3-star)
-    public string type;
+    public int tier;
+    public string facility;
+    public string type; // "character" or "support_card"
+    public string awarded_at;
     public GachaRewardData data;
 
-    public CharacterData character;
-    public SupportCardData support_card;
+    public int Tier => Tiers.Clamp(tier);
 
-    public int TierInt => tier > 0 ? tier : 1;
+    public bool IsSupportCard => type == SupportCardType;
 
-    public bool IsSupportCard()
+    public CharacterData ToCharacter() => new CharacterData
     {
-        if (!string.IsNullOrEmpty(type) && (type.Equals("support_card", StringComparison.OrdinalIgnoreCase) || type.Equals("sc", StringComparison.OrdinalIgnoreCase)))
-            return true;
-        if (id != null && id.StartsWith("sc_", StringComparison.OrdinalIgnoreCase))
-            return true;
-        if (data != null && data.skills != null && data.skills.Length > 0)
-            return true;
-        return false;
-    }
+        id = id,
+        name = name,
+        tier = Tier,
+        traits = data?.base_traits ?? new Traits(),
+        growth = data?.growth ?? new Traits(),
+        affinity = data?.affinity ?? new PositionAffinity(),
+        gear = data?.gear
+    };
 
-    public CharacterData GetCharacter()
+    public SupportCardData ToSupportCard() => new SupportCardData
     {
-        if (character != null)
-        {
-            if (string.IsNullOrEmpty(character.id)) character.id = id;
-            if (string.IsNullOrEmpty(character.name)) character.name = name;
-            if (character.tier <= 0) character.tier = TierInt;
-            return character;
-        }
-        return data != null ? data.AsCharacter(id, name, TierInt) : new CharacterData { id = id, name = name, tier = TierInt, health = 0 };
-    }
+        id = id,
+        name = name,
+        tier = Tier,
+        facility = !string.IsNullOrEmpty(facility) ? facility : (data?.facility ?? "power"),
+        skills = data?.skills ?? Array.Empty<string>()
+    };
 
-    public SupportCardData GetSupportCard()
+    public string Label
     {
-        if (support_card != null)
+        get
         {
-            if (string.IsNullOrEmpty(support_card.id)) support_card.id = id;
-            if (string.IsNullOrEmpty(support_card.name)) support_card.name = name;
-            if (support_card.tier <= 0) support_card.tier = TierInt;
-            return support_card;
-        }
-        return data != null ? data.AsSupportCard(id, name, TierInt) : new SupportCardData { id = id, name = name, tier = TierInt, level = 1, skills = Array.Empty<string>() };
-    }
+            string displayName = string.IsNullOrEmpty(name) ? "Unknown" : name;
 
-    public string GetTierDisplay(bool asStars = false)
-    {
-        if (asStars || !IsSupportCard())
-        {
-            return $"{TierInt} star";
-        }
+            if (IsSupportCard)
+            {
+                SupportCardData card = ToSupportCard();
+                string header = $"{displayName} [{Tiers.ShortName(Tier)} | {card.facility.ToUpperInvariant()}]\n<Support Card>";
+                return card.skills.Length > 0 ? $"{header} ({string.Join(", ", card.skills)})" : header;
+            }
 
-        switch (TierInt)
-        {
-            case 1: return "Common";
-            case 2: return "Rare";
-            case 3: return "Super Rare";
-            default: return $"Tier {TierInt}";
+            CharacterData character = ToCharacter();
+            string text = $"{displayName} [{character.StarsDisplay}]\n<Character>";
+            return character.traits.Total > 0 ? $"{text}\n{character.traits}\n{character.affinity}" : text;
         }
     }
 }

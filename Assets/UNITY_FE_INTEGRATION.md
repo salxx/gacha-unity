@@ -59,7 +59,7 @@ Successful response:
       "name": "Rookie",
       "tier": "common",
       "type": "pilot",
-      "data": { "health": 100 },
+      "data": { "base_traits": { "power": 90, "agility": 40, "impact": 100, "defense": 50, "finesse": 70 }, "growth": { "power": 10, "agility": -20, "impact": 20, "defense": -20, "finesse": 0 }, "affinity": { "front": "F", "close": "E", "mid": "C", "back": "A" }, "gear": { "id": "gear_001", "name": "Longshot Rifle", "trait": "impact", "effect": "penetration_damage", "value": 25 } },
       "awarded_at": "2026-09-16T12:00:00.000000"
     }
   ],

@@ -1,8 +1,9 @@
-using UnityEngine;
-#if ENABLE_INPUT_SYSTEM
+﻿using UnityEngine;
 using UnityEngine.InputSystem;
-#endif
 
+/// <summary>
+/// Rotates the object around an axis while the left mouse button is dragged horizontally.
+/// </summary>
 public class RotateScript : MonoBehaviour
 {
     [SerializeField] private float rotationSpeed = 0.5f;
@@ -10,87 +11,25 @@ public class RotateScript : MonoBehaviour
     [SerializeField] private Vector3 axis = Vector3.up;
 
     private Vector2 lastMousePosition;
-    private bool isDragging = false;
+    private bool isDragging;
 
-    public float RotationSpeed
+    private void Update()
     {
-        get => rotationSpeed;
-        set => rotationSpeed = value;
-    }
-
-    public bool Invert
-    {
-        get => invert;
-        set => invert = value;
-    }
-
-    public Vector3 Axis
-    {
-        get => axis;
-        set => axis = value;
-    }
-
-    void Update()
-    {
-        bool isPressed = IsMouseButtonPressed();
-
-        if (isPressed)
-        {
-            Vector2 currentMousePosition = GetMousePosition();
-            if (isDragging)
-            {
-                Vector2 delta = currentMousePosition - lastMousePosition;
-                float direction = invert ? 1f : -1f;
-                transform.Rotate(axis, delta.x * rotationSpeed * direction);
-            }
-
-            lastMousePosition = currentMousePosition;
-            isDragging = true;
-        }
-        else
+        Mouse mouse = Mouse.current;
+        if (mouse == null || !mouse.leftButton.isPressed)
         {
             isDragging = false;
-        }
-    }
-
-    private bool IsMouseButtonPressed()
-    {
-#if ENABLE_INPUT_SYSTEM
-        if (Mouse.current != null && Mouse.current.leftButton.isPressed)
-        {
-            return true;
-        }
-#endif
-#if ENABLE_LEGACY_INPUT_MANAGER
-        if (Input.GetMouseButton(0))
-        {
-            return true;
-        }
-#endif
-        if (Mouse.current != null && Mouse.current.leftButton.isPressed)
-        {
-            return true;
+            return;
         }
 
-        return false;
-    }
-
-    private Vector2 GetMousePosition()
-    {
-#if ENABLE_INPUT_SYSTEM
-        if (Mouse.current != null)
+        Vector2 mousePosition = mouse.position.ReadValue();
+        if (isDragging)
         {
-            return Mouse.current.position.ReadValue();
-        }
-#endif
-#if ENABLE_LEGACY_INPUT_MANAGER
-        return Input.mousePosition;
-#endif
-        if (Mouse.current != null)
-        {
-            return Mouse.current.position.ReadValue();
+            float direction = invert ? 1f : -1f;
+            transform.Rotate(axis, (mousePosition.x - lastMousePosition.x) * rotationSpeed * direction);
         }
 
-        return Vector2.zero;
+        lastMousePosition = mousePosition;
+        isDragging = true;
     }
 }
