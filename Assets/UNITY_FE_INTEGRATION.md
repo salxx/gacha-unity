@@ -55,9 +55,9 @@ Successful response:
   "player_id": "test",
   "rewards": [
     {
-      "id": "C1",
+      "id": "R1",
       "name": "Rookie",
-      "tier": "common",
+      "tier": "rare",
       "type": "pilot",
       "data": { "base_traits": { "power": 90, "agility": 40, "impact": 100, "defense": 50, "finesse": 70 }, "growth": { "power": 10, "agility": -20, "impact": 20, "defense": -20, "finesse": 0 }, "affinity": { "front": "F", "close": "E", "mid": "C", "back": "A" }, "gear": { "id": "gear_001", "name": "Longshot Rifle", "trait": "impact", "effect": "penetration_damage", "value": 25 } },
       "awarded_at": "2026-09-16T12:00:00.000000"
@@ -67,6 +67,7 @@ Successful response:
     "name": "test",
     "tokens": 8200,
     "packs_opened": 1,
+    "ssr_offset": 7,
     "sr_offset": 7
   }
 }
@@ -95,3 +96,18 @@ This response uses HTTP status `403`. Keep the current player stats on screen an
 5. On HTTP `200`, display the 10 rewards and replace the displayed stats with the response's `stats` object.
 6. On HTTP `403`, do not modify the local balance; show that 900 tokens are required.
 7. Call `/player-stats?player_id=...` whenever the UI needs to refresh the persisted player state.
+
+## Training selection
+
+When no active training run exists, call `/player-characters?player_id=...` to populate the character grid. The response's `characters` array contains only characters owned by that player. Show each character as an image loaded from `Resources/Images/Characters/<character_id>`; a missing resource resolves to `null`.
+
+Use `/player-support-card-presets?player_id=...&preset_id=default` to read the saved `character_id` and preselect it in the grid. The selected character is highlighted with `SpriteGlowOutline.shader`. Clicking a different character moves the highlight; the Continue button accepts and saves the selection before opening the support-card selector:
+
+```json
+{
+  "preset_id": "default",
+  "character_id": "char_001"
+}
+```
+
+This character selection is stored in the same preset document as `support_card_ids`; omitting `support_card_ids` leaves the saved cards unchanged. After the support-card selection is completed, start training with the chosen `character_id` and selected card IDs. If a training run is already active, skip both selectors and resume it.

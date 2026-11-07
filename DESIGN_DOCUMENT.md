@@ -48,11 +48,11 @@ A cross-era hero collector and tactical squad auto-battler built around a deep r
 
 ### 3.1 Tier Scoring Representation (1-based Integer)
 All catalog entries and gacha pull returns use an integer `tier` value (`1`, `2`, `3`):
-- `tier: 1` ➔ Common / 1-Star (`1★`)
-- `tier: 2` ➔ Rare / 2-Star (`2★`)
-- `tier: 3` ➔ Super Rare / 3-Star (`3★`)
+- `tier: 1` ➔ Rare / 1-Star (`1★` / `R`)
+- `tier: 2` ➔ Super Rare / 2-Star (`2★` / `SR`)
+- `tier: 3` ➔ SSR / 3-Star (`3★` / `SSR`)
 
-*Note: The display naming (Stars `1★`-`5★` or Rarity tags `C`/`R`/`SR`) is handled on the Frontend based on the item type and integer tier.*
+*Note: The display naming (Stars `1★`-`5★` or Rarity tags `R`/`SR`/`SSR`) is handled on the Frontend based on the item type and integer tier.*
 
 ### 3.2 Characters
 - Base entity required to enter Training Mode.
@@ -77,9 +77,9 @@ All catalog entries and gacha pull returns use an integer `tier` value (`1`, `2`
 ### 3.3 Support Cards (SC)
 - Cards equipped into Support Deck slots before commencing a Training Run.
 - Not star-upgradeable, but feature **Level Progression** (starting at Lv. 1):
-  - **Tier 1 (Common / C)**: Max Level **30**
-  - **Tier 2 (Rare / R)**: Max Level **40**
-  - **Tier 3 (Super Rare / SR)**: Max Level **50**
+  - **Tier 1 (Rare / R)**: Max Level **30**
+  - **Tier 2 (Super Rare / SR)**: Max Level **40**
+  - **Tier 3 (SSR)**: Max Level **50**
 - Levels are upgraded outside the gacha reward catalog using in-game currencies.
 - Provide training event opportunities, stat gains, and teachable battle skills.
 - **Example Data Contract**:
@@ -97,12 +97,12 @@ All catalog entries and gacha pull returns use an integer `tier` value (`1`, `2`
   ```
 
 ### 3.4 Rarity Tiers & Pull Odds (Identical for Both Banners)
-- **Tier 1 (Common / 1★ / C)**: 79% base pull rate (Pulls 1–9).
-- **Tier 2 (Rare / 2★ / R)**: 18% base pull rate (Pulls 1–9).
-- **Tier 3 (Super Rare / 3★ / SR)**: 3% base pull rate (Pulls 1–9).
+- **Tier 1 (Rare / 1★ / R)**: 79% base pull rate (Pulls 1–9).
+- **Tier 2 (Super Rare / 2★ / SR)**: 18% base pull rate (Pulls 1–9).
+- **Tier 3 (SSR / 3★ / SSR)**: 3% base pull rate (Pulls 1–9).
 - **Pity & 10th Pull Guarantees**:
-  - Pull 10 guarantees at least `Tier 2` (Rare / 2★) or `Tier 3` (Super Rare / 3★).
-  - `sr_offset`: Dynamic 10-pack cycle pity guarantee ensuring at least one `Tier 3` (Super Rare / 3★).
+  - Pull 10 guarantees at least `Tier 2` (Super Rare / 2★ / SR) or `Tier 3` (SSR / 3★).
+  - `ssr_offset`: Dynamic 10-pack cycle pity guarantee ensuring at least one `Tier 3` (SSR / 3★).
 
 ### 3.5 Traits (Trainable Stats & PvE Math Basis)
 Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive all PvE math:
@@ -158,7 +158,9 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
     - Physical facility training (Power, Agility, Impact, Defense) consumes `15 Energy points`.
     - **Finesse Facility Training**: Does not cost energy; instead **restores 10% of max energy in points** (e.g. `+10 Energy` for 100 max energy).
     - **Rest Action**: Recovers `+50 Energy points` (cannot rest if energy is already at max energy).
-    - **Failure Rate Mechanics**: Starts at the **50% Energy mark** (when current energy < 50% of max energy). Increases by `2% for every 1% below 50%` (e.g. at 40% energy = 20% fail rate, 0 energy = 100% fail rate).
+    - **Failure Rate Mechanics**:
+      - Standard physical facilities (Power, Agility, Impact, Defense): Starts at the **50% Energy mark** (when current energy < 50% of max energy). Increases by `2% for every 1% below 50%` (e.g. at 40% energy = 20% fail rate, 0 energy = 100% fail rate).
+      - **Finesse Facility**: Starts below the **33% Energy mark**. Increases by `3% for every 1% below 33%` (e.g. at 30% energy = 9% fail rate, 0 energy = 99% fail rate).
     - If training fails, energy is consumed (or no energy restored for finesse), 0 stats are gained, and no other penalties are applied.
   - **5 Facilities & Stat Distribution**:
     - Stats are capped at `1000` max per trait.
@@ -178,7 +180,7 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
     - Each Support Card has an assigned facility type (`power`, `agility`, `impact`, `defense`, `finesse`).
     - Support Cards randomly distribute across facilities on each turn.
     - Support Cards start with `20%` bond gauge and gain `+15%` bond whenever the player trains at their facility (only cards sitting at the selected facility gain bond).
-    - **Rainbow Training**: Triggers only when a card's bond is `≥ 80%` and the card is currently sitting at its matching facility. Boosts training yield by `+10%` (Tier 1 / C), `+20%` (Tier 2 / R), or `+30%` (Tier 3 / SR).
+    - **Rainbow Training**: Triggers only when a card's bond is `≥ 80%` and the card is currently sitting at its matching facility. Boosts training yield multiplicatively based on card tier: `+10%` (Tier 1 / R), `+15%` (Tier 2 / SR), or `+20%` (Tier 3 / SSR).
   - **Two-Click Action Confirmation & Live Preview**:
     - In frontend UI, first click on any facility or Rest button previews stat gains, energy change (cost/restore), failure chance, and list of support cards currently sitting at that facility.
     - Second click on the same button executes the action via backend API.
@@ -210,11 +212,11 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
 
 - **Response Contract**:
   - Every pulled reward carries `type` (`character` | `support_card`) and `awarded_at`.
-  - `/connect`, `/player-stats` and `/gacha-pack` all return the same `stats` object (`name`, `tokens`, `packs_opened`, `sr_offset`).
+  - `/connect`, `/player-stats` and `/gacha-pack` all return the same `stats` object (`name`, `tokens`, `packs_opened`, `ssr_offset`).
 
 ### 5.2 Frontend (Unity C#)
 - **Data Structures** (`GachaData.cs`, `PlayerData.cs`):
-  - `Tiers`: tier constants (`Common`/`Rare`/`SuperRare` = 1/2/3), `Clamp()` and `ShortName()` (`C`/`R`/`SR`).
+  - `Tiers`: tier constants (`Rare`/`SuperRare`/`SSR` = 1/2/3), `Clamp()` and `ShortName()` (`R`/`SR`/`SSR`).
   - `GachaReward`: wire format of a pulled item (`id`, `name`, `tier`, `type`, `data`). Provides `IsSupportCard`, `ToCharacter()`, `ToSupportCard()` and the display `Label`.
   - `CharacterData`: `id`, `name`, `tier` (1–5 stars), `traits`, `growth`, `affinity`, `gear`; `StarsDisplay` (`"1★"`…`"5★"`).
   - `Traits` (power/agility/impact/defense/finesse), `PositionAffinity` (front/close/mid/back, `Rank()`, `Grade()`, `Ceiling()`, `IsValidDefault()`), `GearData`, `TraitMath` (baseline PvE & growth formulas).
@@ -222,7 +224,7 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
   - `PlayerData`: `playerId`, server `stats`, and the rosters of acquired characters and support cards.
 - **Scene Singletons** (`Singleton<T>`, registered in `Awake`, use `X.Instance` from `Start` or later — never link them in the Inspector):
   - `GameClient`: login, stats refresh and pack pulls (`Pull(banner)`); events `OnLoginSuccess`, `OnPullStarted`, `OnPullFinished`.
-  - `GachaItemSpawner`: presents rewards (`Line` or `SingleItemOnClick` with anticipation reveal, pull indicators and Skip Commons); events `OnSequenceStarted`, `OnSequenceEnded`.
+  - `GachaItemSpawner`: presents rewards (`Line` or `SingleItemOnClick` with anticipation reveal, pull indicators and Skip Rares); events `OnSequenceStarted`, `OnSequenceEnded`.
 - **Other Components**:
   - `GachaPullButton`: one per banner (`targetGacha`), shown only while logged in and no reveal sequence is running.
   - `RotateScript`: mouse-drag rotation of a reward model.
