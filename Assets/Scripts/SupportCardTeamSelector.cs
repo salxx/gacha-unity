@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.Events;
 using UnityEngine.UI;
 
@@ -11,6 +12,7 @@ public class SupportCardTeamSelector : MonoBehaviour
 
     [SerializeField] private Button[] cardButtons = new Button[RequiredCardCount];
     [SerializeField] private Button continueButton;
+    [SerializeField] private GameObject cardSelectorBackground;
     [SerializeField] private GameObject cardGridObject;
 
     private readonly SupportCardData[] selectedCards = new SupportCardData[RequiredCardCount];
@@ -18,13 +20,19 @@ public class SupportCardTeamSelector : MonoBehaviour
     private readonly Sprite[] defaultFacilitySprites = new Sprite[RequiredCardCount];
     private UnityAction[] slotClickHandlers;
     private CardGridManager cardGridManager;
+    private EventTrigger backgroundEventTrigger;
+    private Button selectorButton;
 
     public event Action<SupportCardData[]> OnContinue;
+    public event Action OnCancel;
 
     public SupportCardData[] SelectedCards => (SupportCardData[])selectedCards.Clone();
 
     private void Awake()
     {
+        InitializeSelectorButton();
+        InitializeBackgroundButton();
+
         if (cardButtons == null || cardButtons.Length != RequiredCardCount)
         {
             Debug.LogError($"Assign exactly {RequiredCardCount} card buttons.", this);
@@ -71,11 +79,27 @@ public class SupportCardTeamSelector : MonoBehaviour
         }
 
         cardGridManager.enabled = false;
-        cardGridObject.SetActive(false);
+        cardSelectorBackground.SetActive(false);
     }
 
     private void OnDestroy()
     {
+        if (selectorButton != null)
+        {
+            selectorButton.onClick.RemoveListener(CancelSelection);
+        }
+
+        if (backgroundEventTrigger != null)
+        {
+            foreach (EventTrigger.Entry entry in backgroundEventTrigger.triggers)
+            {
+                if (entry.eventID == EventTriggerType.PointerClick)
+                {
+                    entry.callback.RemoveListener(HandleBackgroundPointerClick);
+                }
+            }
+        }
+
         if (cardButtons != null && slotClickHandlers != null)
         {
             for (int i = 0; i < cardButtons.Length; i++)
@@ -101,13 +125,23 @@ public class SupportCardTeamSelector : MonoBehaviour
             return;
         }
 
-        cardGridObject.SetActive(true);
+        cardSelectorBackground.SetActive(true);
+        var unavailableCardIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (SupportCardData selectedCard in selectedCards)
+        {
+            if (selectedCard != null && !string.IsNullOrWhiteSpace(selectedCard.id))
+            {
+                unavailableCardIds.Add(selectedCard.id);
+            }
+        }
+
         cardGridManager.FetchAndInitializeGrid(
             card => HandleCardSelected(slot, card),
+            unavailableCardIds,
             error =>
             {
                 Debug.LogError($"Failed to load support cards: {error}", this);
-                cardGridObject.SetActive(false);
+                cardSelectorBackground.SetActive(false);
             });
     }
 
@@ -249,7 +283,74 @@ public class SupportCardTeamSelector : MonoBehaviour
         }
 
         UpdateContinueButton();
-        cardGridObject.SetActive(false);
+        cardSelectorBackground.SetActive(false);
+    }
+
+    private void InitializeBackgroundButton()
+    {
+        if (cardSelectorBackground == null)
+        {
+            Debug.LogError("Card selector background is not assigned.", this);
+            return;
+        }
+
+        backgroundEventTrigger = cardSelectorBackground.GetComponent<EventTrigger>();
+        if (backgroundEventTrigger == null)
+        {
+            backgroundEventTrigger = cardSelectorBackground.AddComponent<EventTrigger>();
+        }
+
+        var entry = new EventTrigger.Entry { eventID = EventTriggerType.PointerClick };
+        entry.callback.AddListener(HandleBackgroundPointerClick);
+        backgroundEventTrigger.triggers.Add(entry);
+    }
+
+    private void HandleBackgroundPointerClick(BaseEventData eventData)
+    {
+        if (eventData is PointerEventData pointerEvent
+            && pointerEvent.pointerCurrentRaycast.gameObject == cardSelectorBackground)
+        {
+            CloseCardGrid();
+        }
+    }
+
+    private void CloseCardGrid()
+    {
+        if (cardSelectorBackground != null)
+        {
+            cardSelectorBackground.SetActive(false);
+        }
+    }
+
+    private void InitializeSelectorButton()
+    {
+        Image selectorImage = GetComponent<Image>();
+        if (selectorImage == null)
+        {
+            Debug.LogError("Support card selector does not have an Image component to close from.", this);
+            return;
+        }
+
+        selectorButton = GetComponent<Button>();
+        if (selectorButton == null)
+        {
+            selectorButton = gameObject.AddComponent<Button>();
+        }
+
+        selectorButton.targetGraphic = selectorImage;
+        selectorButton.transition = Selectable.Transition.None;
+        selectorButton.onClick.AddListener(CancelSelection);
+    }
+
+    private void CancelSelection()
+    {
+        if (cardSelectorBackground != null)
+        {
+            cardSelectorBackground.SetActive(false);
+        }
+
+        gameObject.SetActive(false);
+        OnCancel?.Invoke();
     }
 
     private void HandleContinueClicked()

@@ -2,6 +2,7 @@
 
 ## Project Scope & Responsibilities
 - **Full-Stack Management (Frontend & Backend)**: Handle both Frontend (FE / Unity project in `C:\Users\Alex\Gacha`) and Backend (BE / Python project in `C:\Users\Alex\gacha-BE`).
+- **Workspace Locations**: The Unity client project root is `C:\Users\Alex\Gacha`; use it for all Unity scene, script, and asset work.
 
 ## Project Builds
 - **Do Not Build the Project**: Never run build commands or the build tool on this project, as Unity automatically compiles and builds the project.

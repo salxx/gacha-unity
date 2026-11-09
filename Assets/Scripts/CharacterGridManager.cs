@@ -1,20 +1,36 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-public class CharacterGridManager : MonoBehaviour
+public class CharacterGridManager : MonoBehaviour, IPointerClickHandler
 {
     private readonly List<CharacterGridItem> gridItems = new List<CharacterGridItem>();
     private Transform contentPanel;
     private OwnedCharacterData selectedCharacter;
     private Action<OwnedCharacterData> onContinue;
-    private Button continueButton;
-    private RectTransform scrollRectTransform;
-    private Vector2 originalScrollOffsetMin;
-    private bool scrollAreaAdjusted;
+    [SerializeField] private Button continueButton;
     private Material outlineMaterial;
     private Material unselectedMaterial;
+
+    public event Action OnBackgroundClicked;
+
+    private void Awake()
+    {
+        if (continueButton != null)
+        {
+            continueButton.onClick.AddListener(HandleContinueClicked);
+        }
+    }
+
+    public void OnPointerClick(PointerEventData eventData)
+    {
+        if (eventData.pointerCurrentRaycast.gameObject == gameObject)
+        {
+            OnBackgroundClicked?.Invoke();
+        }
+    }
 
     public void Open(
         string selectedCharacterId,
@@ -29,19 +45,13 @@ public class CharacterGridManager : MonoBehaviour
             return;
         }
 
+        if (continueButton == null)
+        {
+            onError?.Invoke("Character selector continue button is not assigned.");
+            return;
+        }
+
         contentPanel = scrollRect.content;
-        scrollRectTransform = scrollRect.GetComponent<RectTransform>();
-        if (scrollAreaAdjusted)
-        {
-            scrollRectTransform.offsetMin = originalScrollOffsetMin;
-        }
-        else
-        {
-            originalScrollOffsetMin = scrollRectTransform.offsetMin;
-            scrollAreaAdjusted = true;
-        }
-        scrollRectTransform.offsetMin += new Vector2(0, 70);
-        EnsureContinueButton();
 
         Shader outlineShader = Shader.Find("Custom/SpriteGlowOutline");
         if (outlineShader == null)
@@ -116,9 +126,9 @@ public class CharacterGridManager : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (scrollRectTransform != null)
+        if (continueButton != null)
         {
-            scrollRectTransform.offsetMin = originalScrollOffsetMin;
+            continueButton.onClick.RemoveListener(HandleContinueClicked);
         }
 
         if (outlineMaterial != null)
@@ -130,53 +140,6 @@ public class CharacterGridManager : MonoBehaviour
         {
             Destroy(unselectedMaterial);
         }
-    }
-
-    private void EnsureContinueButton()
-    {
-        if (continueButton != null)
-        {
-            return;
-        }
-
-        GameObject buttonObject = new GameObject(
-            "ContinueButton",
-            typeof(RectTransform),
-            typeof(CanvasRenderer),
-            typeof(Image),
-            typeof(Button));
-        buttonObject.transform.SetParent(transform, false);
-        buttonObject.layer = gameObject.layer;
-        RectTransform buttonRect = buttonObject.GetComponent<RectTransform>();
-        buttonRect.anchorMin = new Vector2(0.5f, 0);
-        buttonRect.anchorMax = new Vector2(0.5f, 0);
-        buttonRect.pivot = new Vector2(0.5f, 0);
-        buttonRect.anchoredPosition = new Vector2(0, 10);
-        buttonRect.sizeDelta = new Vector2(200, 50);
-
-        Image buttonImage = buttonObject.GetComponent<Image>();
-        buttonImage.color = Color.white;
-        continueButton = buttonObject.GetComponent<Button>();
-        continueButton.targetGraphic = buttonImage;
-        continueButton.onClick.AddListener(HandleContinueClicked);
-        continueButton.interactable = false;
-
-        GameObject labelObject = new GameObject(
-            "Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
-        labelObject.transform.SetParent(buttonObject.transform, false);
-        labelObject.layer = gameObject.layer;
-        RectTransform labelRect = labelObject.GetComponent<RectTransform>();
-        labelRect.anchorMin = Vector2.zero;
-        labelRect.anchorMax = Vector2.one;
-        labelRect.offsetMin = Vector2.zero;
-        labelRect.offsetMax = Vector2.zero;
-        Text label = labelObject.GetComponent<Text>();
-        label.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        label.fontSize = 24;
-        label.alignment = TextAnchor.MiddleCenter;
-        label.color = Color.black;
-        label.text = "Continue";
-        label.raycastTarget = false;
     }
 
     private void ClearGrid()

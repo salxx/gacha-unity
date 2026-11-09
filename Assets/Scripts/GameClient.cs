@@ -15,22 +15,25 @@ public class GameClient : Singleton<GameClient>
 {
     public const int PackCost = 900;
     public const string TrainingSceneName = "TrainingScene";
+    public const string BattleSceneName = "BattleScene";
 
     [SerializeField] private string backendUrl = "http://127.0.0.1:5000";
     [SerializeField] private Canvas mainCanvas;
-    [SerializeField] private Image loginField;
-    [SerializeField] private TMP_InputField tmpPlayerIdInputField;
-    [SerializeField] private Button connectButton;
     [SerializeField] private TMP_Text playerIdText;
     [SerializeField] private Button trainingButton;
     [SerializeField] private TMP_Text trainingButtonText;
+    [SerializeField] private Button battleButton;
     [SerializeField] private SupportCardTeamSelector supportCardTeamSelector;
+    [SerializeField] private GameObject characterSelectorBackground;
+    [SerializeField] private CharacterGridManager characterGridManager;
 
-    private GameObject characterSelectorInstance;
-    private CharacterGridManager characterGridManager;
+    private Button characterSelectorBackgroundButton;
     private string selectedCharacterId;
+    private int characterSelectionGeneration;
+    private bool isLoadingBattle;
 
     public PlayerData CurrentPlayer { get; private set; }
+    public string BackendUrl => backendUrl;
     public TrainingRunData CurrentTrainingRun { get; private set; }
     public bool IsLoggedIn => CurrentPlayer != null;
     public bool CanAffordPack => IsLoggedIn && CurrentPlayer.Tokens >= PackCost;
@@ -48,64 +51,88 @@ public class GameClient : Singleton<GameClient>
 
     private void Start()
     {
-        connectButton.onClick.AddListener(OnConnectButtonClicked);
         SubscribeToCardSelector();
+        InitializeCharacterSelectorBackground();
         if (trainingButton != null)
         {
             trainingButton.onClick.AddListener(OnTrainingButtonClicked);
             trainingButton.gameObject.SetActive(false);
         }
+        if (battleButton != null)
+        {
+            battleButton.onClick.AddListener(OnBattleButtonClicked);
+            battleButton.gameObject.SetActive(false);
+        }
 
-        OnPullStarted += () => trainingButton.gameObject.SetActive(false);
-        GachaItemSpawner.Instance.OnSequenceEnded += () => trainingButton.gameObject.SetActive(true);
+        OnPullStarted += HideTrainingButton;
         
         StartCoroutine(Get("/", _ => Debug.Log($"Backend reachable at {backendUrl}"), _ => { }));
     }
 
     protected override void OnDestroy()
     {
-        connectButton.onClick.RemoveListener(OnConnectButtonClicked);
+        OnPullStarted -= HideTrainingButton;
+        if (characterSelectorBackgroundButton != null)
+        {
+            characterSelectorBackgroundButton.onClick.RemoveListener(CancelCharacterSelection);
+        }
+
+        if (characterGridManager != null)
+        {
+            characterGridManager.OnBackgroundClicked -= CancelCharacterSelection;
+        }
+
         if (trainingButton != null)
         {
             trainingButton.onClick.RemoveListener(OnTrainingButtonClicked);
         }
 
+        if (battleButton != null)
+        {
+            battleButton.onClick.RemoveListener(OnBattleButtonClicked);
+        }
+
         if (supportCardTeamSelector != null)
         {
             supportCardTeamSelector.OnContinue -= StartTrainingWithCards;
-        }
-
-        if (characterSelectorInstance != null)
-        {
-            Destroy(characterSelectorInstance);
+            supportCardTeamSelector.OnCancel -= CancelTrainingSelection;
         }
 
         base.OnDestroy();
     }
 
-    private void OnConnectButtonClicked()
+    public void Login(string playerId, Action onSuccess, Action<string> onError)
     {
-        string playerId = tmpPlayerIdInputField.text.Trim();
-        if (playerId.Length == 0)
+        if (string.IsNullOrWhiteSpace(playerId))
         {
-            ShowStatus("Player ID cannot be empty.");
+            onError?.Invoke("Player ID cannot be empty.");
             return;
         }
 
-        StartCoroutine(Get($"/connect?player_id={UnityWebRequest.EscapeURL(playerId)}", json =>
+        string normalizedPlayerId = playerId.Trim();
+        StartCoroutine(Get($"/connect?player_id={UnityWebRequest.EscapeURL(normalizedPlayerId)}", json =>
         {
             ConnectResponse response = JsonUtility.FromJson<ConnectResponse>(json);
-            CurrentPlayer = new PlayerData(response.player_id ?? playerId, response.stats);
-            loginField.gameObject.SetActive(false);
+            if (response == null || !response.success)
+            {
+                throw new FormatException("response did not confirm a successful login");
+            }
+
+            CurrentPlayer = new PlayerData(response.player_id ?? normalizedPlayerId, response.stats);
             if (trainingButton != null)
             {
                 trainingButton.gameObject.SetActive(true);
+            }
+            if (battleButton != null)
+            {
+                battleButton.gameObject.SetActive(true);
             }
 
             FetchTrainingState();
             ShowStatus();
             OnLoginSuccess?.Invoke();
-        }, error => ShowStatus($"Failed to connect: {error}")));
+            onSuccess?.Invoke();
+        }, error => onError?.Invoke(error)));
     }
 
     public void OnTrainingButtonClicked()
@@ -151,33 +178,30 @@ public class GameClient : Singleton<GameClient>
 
     private void OpenCharacterSelector()
     {
-        if (characterSelectorInstance == null)
+        if (characterSelectorBackground == null || characterGridManager == null)
         {
-            GameObject selectorPrefab = Resources.Load<GameObject>("Prefabs/CharacterSelectorScrollView");
-            if (selectorPrefab == null)
-            {
-                ShowStatus("Character selector prefab could not be loaded.");
-                return;
-            }
-
-            characterSelectorInstance = Instantiate(selectorPrefab, mainCanvas.transform, false);
-            characterGridManager = characterSelectorInstance.GetComponent<CharacterGridManager>();
-            if (characterGridManager == null)
-            {
-                characterGridManager = characterSelectorInstance.AddComponent<CharacterGridManager>();
-            }
-        }
-        else
-        {
-            characterSelectorInstance.SetActive(true);
+            ShowStatus("Character selector background or grid is not assigned.");
+            return;
         }
 
+        int selectionGeneration = ++characterSelectionGeneration;
+        characterSelectorBackground.SetActive(true);
         FetchCharacterSelection(characterId =>
-            characterGridManager.Open(characterId, HandleCharacterSelected, ShowStatus),
-            error => ShowStatus($"Failed to load saved character selection: {error}"));
+            characterGridManager.Open(
+                characterId,
+                character => HandleCharacterSelected(selectionGeneration, character),
+                ShowStatus),
+            error =>
+            {
+                if (selectionGeneration == characterSelectionGeneration)
+                {
+                    characterSelectorBackground.SetActive(false);
+                    ShowStatus($"Failed to load saved character selection: {error}");
+                }
+            });
     }
 
-    private void HandleCharacterSelected(OwnedCharacterData character)
+    private void HandleCharacterSelected(int selectionGeneration, OwnedCharacterData character)
     {
         if (character == null || string.IsNullOrWhiteSpace(character.character_id))
         {
@@ -187,16 +211,67 @@ public class GameClient : Singleton<GameClient>
 
         SaveCharacterSelection(character.character_id, () =>
         {
-            selectedCharacterId = character.character_id;
-            if (characterSelectorInstance != null)
+            if (selectionGeneration != characterSelectionGeneration)
             {
-                Destroy(characterSelectorInstance);
-                characterSelectorInstance = null;
-                characterGridManager = null;
+                return;
             }
 
+            selectedCharacterId = character.character_id;
+            characterSelectorBackground.SetActive(false);
             OpenCardSelector();
         }, error => ShowStatus($"Failed to save character selection: {error}"));
+    }
+
+    private void InitializeCharacterSelectorBackground()
+    {
+        if (characterSelectorBackground == null)
+        {
+            Debug.LogError("Character selector background is not assigned.", this);
+            return;
+        }
+
+        Image backgroundImage = characterSelectorBackground.GetComponent<Image>();
+        if (backgroundImage == null)
+        {
+            Debug.LogError("Character selector background does not have an Image component.", this);
+            return;
+        }
+
+        characterSelectorBackgroundButton = characterSelectorBackground.GetComponent<Button>();
+        if (characterSelectorBackgroundButton == null)
+        {
+            characterSelectorBackgroundButton = characterSelectorBackground.AddComponent<Button>();
+        }
+
+        characterSelectorBackgroundButton.targetGraphic = backgroundImage;
+        characterSelectorBackgroundButton.transition = Selectable.Transition.None;
+        characterSelectorBackgroundButton.onClick.AddListener(CancelCharacterSelection);
+
+        if (characterGridManager == null)
+        {
+            Debug.LogError("Character grid manager is not assigned.", this);
+            return;
+        }
+
+        if (characterGridManager.GetComponent<Image>() == null)
+        {
+            Debug.LogError("Character selector scroll view does not have an Image component.", this);
+            return;
+        }
+
+        characterGridManager.OnBackgroundClicked -= CancelCharacterSelection;
+        characterGridManager.OnBackgroundClicked += CancelCharacterSelection;
+    }
+
+    private void CancelCharacterSelection()
+    {
+        characterSelectionGeneration++;
+        if (characterSelectorBackground != null)
+        {
+            characterSelectorBackground.SetActive(false);
+        }
+
+        selectedCharacterId = null;
     }
 
     private void OpenCardSelector()
@@ -233,6 +308,14 @@ public class GameClient : Singleton<GameClient>
 
         supportCardTeamSelector.OnContinue -= StartTrainingWithCards;
         supportCardTeamSelector.OnContinue += StartTrainingWithCards;
+        supportCardTeamSelector.OnCancel -= CancelTrainingSelection;
+        supportCardTeamSelector.OnCancel += CancelTrainingSelection;
+    }
+
+    private void CancelTrainingSelection()
+    {
+        selectedCharacterId = null;
+        isStartingTraining = false;
     }
 
     private void StartTrainingWithCards(SupportCardData[] selectedCards)
@@ -271,6 +354,89 @@ public class GameClient : Singleton<GameClient>
         {
             SceneManager.LoadSceneAsync(TrainingSceneName, LoadSceneMode.Additive);
         }
+    }
+
+    private void OnBattleButtonClicked()
+    {
+        if (!IsLoggedIn || isLoadingBattle)
+        {
+            return;
+        }
+
+        isLoadingBattle = true;
+        battleButton.interactable = false;
+        mainCanvas.gameObject.SetActive(false);
+
+        Scene battleScene = SceneManager.GetSceneByName(BattleSceneName);
+        if (battleScene.isLoaded)
+        {
+            isLoadingBattle = false;
+            SceneManager.SetActiveScene(battleScene);
+            return;
+        }
+
+        StartCoroutine(LoadBattleScene());
+    }
+
+    private IEnumerator LoadBattleScene()
+    {
+        AsyncOperation loadOperation = SceneManager.LoadSceneAsync(BattleSceneName, LoadSceneMode.Additive);
+        if (loadOperation == null)
+        {
+            RestoreHomeAfterBattle();
+            ShowStatus($"Failed to load {BattleSceneName}.");
+            yield break;
+        }
+
+        yield return loadOperation;
+
+        Scene battleScene = SceneManager.GetSceneByName(BattleSceneName);
+        if (!battleScene.isLoaded || !SceneManager.SetActiveScene(battleScene))
+        {
+            RestoreHomeAfterBattle();
+            ShowStatus($"Failed to activate {BattleSceneName}.");
+            yield break;
+        }
+
+        isLoadingBattle = false;
+    }
+
+    public void UnloadBattleScene(Action onCompleted = null)
+    {
+        Scene battleScene = SceneManager.GetSceneByName(BattleSceneName);
+        if (!battleScene.isLoaded)
+        {
+            RestoreHomeAfterBattle();
+            onCompleted?.Invoke();
+            return;
+        }
+
+        Scene homeScene = gameObject.scene;
+        if (!SceneManager.SetActiveScene(homeScene))
+        {
+            Debug.LogError("Could not reactivate the home scene before closing the battle.");
+            return;
+        }
+
+        AsyncOperation unloadOperation = SceneManager.UnloadSceneAsync(battleScene);
+        if (unloadOperation == null)
+        {
+            Debug.LogError("Could not unload the battle scene.");
+            return;
+        }
+
+        unloadOperation.completed += _ =>
+        {
+            RestoreHomeAfterBattle();
+            onCompleted?.Invoke();
+        };
+    }
+
+    private void RestoreHomeAfterBattle()
+    {
+        isLoadingBattle = false;
+        mainCanvas.gameObject.SetActive(true);
+        battleButton.interactable = true;
     }
 
     public void UnloadTrainingScene(Action onCompleted = null)
@@ -499,6 +665,22 @@ public class GameClient : Singleton<GameClient>
             ShowStatus(error);
             OnPullFinished?.Invoke();
         }));
+    }
+
+    public void OnGachaSceneClosed()
+    {
+        if (trainingButton != null)
+        {
+            trainingButton.gameObject.SetActive(true);
+        }
+    }
+
+    private void HideTrainingButton()
+    {
+        if (trainingButton != null)
+        {
+            trainingButton.gameObject.SetActive(false);
+        }
     }
 
     public void RefreshPlayerStats()

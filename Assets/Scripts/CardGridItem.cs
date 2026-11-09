@@ -17,9 +17,18 @@ public class CardGridItem : MonoBehaviour
         onSelectedCallback = onSelect;
 
         SetCardDisplay(card, itemButton, itemText, this);
+        itemButton.interactable = true;
 
         itemButton.onClick.RemoveAllListeners();
         itemButton.onClick.AddListener(HandleClick);
+    }
+
+    public void SetInteractable(bool interactable)
+    {
+        if (itemButton != null)
+        {
+            itemButton.interactable = interactable;
+        }
     }
 
     public static void SetCardDisplay(

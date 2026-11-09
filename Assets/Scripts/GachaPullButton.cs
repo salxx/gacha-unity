@@ -1,4 +1,6 @@
-﻿using UnityEngine;
+using System.Collections;
+using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 /// <summary>
@@ -6,24 +8,31 @@ using UnityEngine.UI;
 /// </summary>
 public class GachaPullButton : MonoBehaviour
 {
+    private const string GachaSceneName = "GachaScene";
+    private static bool isGachaSceneBusy;
+    private static event System.Action GachaSceneAvailabilityChanged;
+
     [SerializeField] private Button pullButton;
 
     [Tooltip("Target gacha banner: 'character' or 'support_card'")]
     [SerializeField] private string targetGacha = "character";
 
     private GameClient client;
-    private GachaItemSpawner spawner;
+    private GachaItemSpawner activeSpawner;
+    private bool isLoadingGachaScene;
+    private bool isWaitingForPullResponse;
+    private bool hasPullResponse;
+    private bool hasSequenceEnded;
 
     private void Start()
     {
         client = GameClient.Instance;
-        spawner = GachaItemSpawner.Instance;
 
         pullButton.onClick.AddListener(OnPullButtonClicked);
         client.OnLoginSuccess += RefreshVisibility;
         client.OnPullFinished += RefreshVisibility;
         client.OnPullStarted += Hide;
-        spawner.OnSequenceEnded += RefreshVisibility;
+        GachaSceneAvailabilityChanged += RefreshVisibility;
 
         RefreshVisibility();
     }
@@ -37,17 +46,136 @@ public class GachaPullButton : MonoBehaviour
             client.OnLoginSuccess -= RefreshVisibility;
             client.OnPullFinished -= RefreshVisibility;
             client.OnPullStarted -= Hide;
+            client.OnPullFinished -= HandlePullFinished;
         }
 
-        if (spawner != null)
+        if (activeSpawner != null)
         {
-            spawner.OnSequenceEnded -= RefreshVisibility;
+            activeSpawner.OnSequenceEnded -= HandleSequenceEnded;
+        }
+
+        GachaSceneAvailabilityChanged -= RefreshVisibility;
+    }
+
+    private void OnPullButtonClicked()
+    {
+        if (isLoadingGachaScene || isGachaSceneBusy || client == null || !client.IsLoggedIn)
+        {
+            return;
+        }
+
+        isLoadingGachaScene = true;
+        isGachaSceneBusy = true;
+        GachaSceneAvailabilityChanged?.Invoke();
+        StartCoroutine(LoadGachaSceneAndPull());
+    }
+
+    private IEnumerator LoadGachaSceneAndPull()
+    {
+        if (!SceneManager.GetSceneByName(GachaSceneName).isLoaded)
+        {
+            AsyncOperation loadOperation = SceneManager.LoadSceneAsync(GachaSceneName, LoadSceneMode.Additive);
+            if (loadOperation == null)
+            {
+                Debug.LogError($"Could not start loading scene '{GachaSceneName}'.");
+                FinishGachaScene();
+                yield break;
+            }
+
+            yield return loadOperation;
+        }
+
+        activeSpawner = GachaItemSpawner.Instance;
+        if (activeSpawner == null)
+        {
+            Debug.LogError($"Scene '{GachaSceneName}' does not contain an active GachaItemSpawner.");
+            yield return UnloadGachaScene();
+            yield break;
+        }
+
+        activeSpawner.OnSequenceEnded += HandleSequenceEnded;
+        client.OnPullFinished += HandlePullFinished;
+        isWaitingForPullResponse = true;
+        hasPullResponse = false;
+        hasSequenceEnded = false;
+        client.Pull(targetGacha);
+    }
+
+    private void HandlePullFinished()
+    {
+        client.OnPullFinished -= HandlePullFinished;
+        isWaitingForPullResponse = false;
+        hasPullResponse = true;
+
+        if (!activeSpawner.IsSequenceActive || hasSequenceEnded)
+        {
+            StartCoroutine(UnloadGachaScene());
         }
     }
 
-    private void OnPullButtonClicked() => client.Pull(targetGacha);
+    private void HandleSequenceEnded()
+    {
+        hasSequenceEnded = true;
+        if (hasPullResponse && !isWaitingForPullResponse)
+        {
+            StartCoroutine(UnloadGachaScene());
+        }
+    }
 
-    private void RefreshVisibility() => pullButton.gameObject.SetActive(client.IsLoggedIn && !spawner.IsSequenceActive);
+    private IEnumerator UnloadGachaScene()
+    {
+        if (!isLoadingGachaScene)
+        {
+            yield break;
+        }
 
-    private void Hide() => pullButton.gameObject.SetActive(false);
+        if (activeSpawner != null)
+        {
+            activeSpawner.OnSequenceEnded -= HandleSequenceEnded;
+            activeSpawner = null;
+        }
+
+        Scene gachaScene = SceneManager.GetSceneByName(GachaSceneName);
+        if (gachaScene.isLoaded)
+        {
+            AsyncOperation unloadOperation = SceneManager.UnloadSceneAsync(gachaScene);
+            if (unloadOperation != null)
+            {
+                yield return unloadOperation;
+            }
+        }
+
+        FinishGachaScene();
+    }
+
+    private void FinishGachaScene()
+    {
+        isLoadingGachaScene = false;
+        isWaitingForPullResponse = false;
+        hasPullResponse = false;
+        hasSequenceEnded = false;
+        isGachaSceneBusy = false;
+        client?.OnGachaSceneClosed();
+        GachaSceneAvailabilityChanged?.Invoke();
+    }
+
+    private void RefreshVisibility()
+    {
+        if (pullButton != null)
+        {
+            pullButton.gameObject.SetActive(
+                client != null
+                && client.IsLoggedIn
+                && !isGachaSceneBusy
+                && !SceneManager.GetSceneByName(GachaSceneName).isLoaded);
+        }
+    }
+
+    private void Hide()
+    {
+        if (pullButton != null)
+        {
+            pullButton.gameObject.SetActive(false);
+        }
+    }
 }

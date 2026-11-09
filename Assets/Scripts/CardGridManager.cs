@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using System;
+using System.Linq;
 
 public class CardGridManager : MonoBehaviour
 {
@@ -11,19 +12,13 @@ public class CardGridManager : MonoBehaviour
 
     private Action<SupportCardData> onGridCompleteCallback;
 
-    private void OnEnable()
-    {
-        FetchAndInitializeGrid((card) =>
-        {
-            Debug.Log("Card selected: " + card.id);
-            gameObject.SetActive(false);
-        });
-    }
-
     /// <summary>
     /// Call this method to open and initialize the grid with your data list.
     /// </summary>
-    public void FetchAndInitializeGrid(Action<SupportCardData> onItemSelected, Action<string> onError = null)
+    public void FetchAndInitializeGrid(
+        Action<SupportCardData> onItemSelected,
+        IEnumerable<string> unavailableCardIds,
+        Action<string> onError = null)
     {
         GameClient client = GameClient.Instance;
         if (client == null)
@@ -32,11 +27,16 @@ public class CardGridManager : MonoBehaviour
             return;
         }
 
-        client.FetchSupportCards(cards => { InitializeGrid(new List<SupportCardData>(cards), onItemSelected); },
+        var unavailableIds = new HashSet<string>(unavailableCardIds ?? Array.Empty<string>(), StringComparer.Ordinal);
+        client.FetchSupportCards(
+            cards => InitializeGrid(new List<SupportCardData>(cards), onItemSelected, unavailableIds),
             onError);
     }
 
-    public void InitializeGrid(List<SupportCardData> itemList, Action<SupportCardData> onItemSelected)
+    public void InitializeGrid(
+        List<SupportCardData> itemList,
+        Action<SupportCardData> onItemSelected,
+        ISet<string> unavailableCardIds = null)
     {
         onGridCompleteCallback = onItemSelected;
 
@@ -46,8 +46,12 @@ public class CardGridManager : MonoBehaviour
             Destroy(child.gameObject);
         }
 
-        // Instantiate and populate the grid
-        foreach (SupportCardData item in itemList)
+        // Keep tiers together, then order facilities by the trait display order.
+        IEnumerable<SupportCardData> sortedItems = itemList
+            .OrderByDescending(item => item.tier)
+            .ThenBy(item => GetFacilitySortOrder(item.facility));
+
+        foreach (SupportCardData item in sortedItems)
         {
             GameObject spawned = Instantiate(prefabItem, contentPanel);
             CardGridItem gridItemScript = spawned.GetComponent<CardGridItem>();
@@ -55,7 +59,28 @@ public class CardGridManager : MonoBehaviour
             if (gridItemScript != null)
             {
                 gridItemScript.Setup(item, OnItemClicked);
+                gridItemScript.SetInteractable(
+                    unavailableCardIds == null || !unavailableCardIds.Contains(item.id));
             }
+        }
+    }
+
+    private static int GetFacilitySortOrder(string facility)
+    {
+        switch (facility?.Trim().ToLowerInvariant())
+        {
+            case "power":
+                return 0;
+            case "agility":
+                return 1;
+            case "impact":
+                return 2;
+            case "defense":
+                return 3;
+            case "finesse":
+                return 4;
+            default:
+                return int.MaxValue;
         }
     }
 
