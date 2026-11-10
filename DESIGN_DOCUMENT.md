@@ -69,7 +69,7 @@ All catalog entries and gacha pull returns use an integer `tier` value (`1`, `2`
       "base_traits": { "power": 90, "agility": 40, "impact": 100, "defense": 50, "finesse": 70 },
       "growth": { "power": 10, "agility": -20, "impact": 20, "defense": -20, "finesse": 0 },
       "affinity": { "front": "F", "close": "E", "mid": "C", "back": "A" },
-      "gear": { "id": "gear_001", "name": "Longshot Rifle", "trait": "impact", "effect": "penetration_damage", "value": 25 }
+      "gear": { "id": "gear_001", "name": "Longshot Rifle", "description": "Increases damage dealt through defense penetration by 25%." }
     }
   }
   ```
@@ -112,9 +112,10 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
 | **Agility** | Attack speed / fire rate. | `attacks/s = 0.5 + agility / 200` |
 | **Impact** | Penetration of enemy armor. | `penetration = impact / 2` |
 | **Defense** | Health and armor (damage reduction). Prioritized by tanks. | `maxHP = 100 + 2·defense`, `armor = defense / 2` |
-| **Finesse** | Likelihood to trigger skills and to dodge damage. | `skill chance = finesse / 1000`, `dodge = min(finesse / 2000, 50%)` |
+| **Finesse** | Reserved for future skill mechanics; it does not affect prototype battle evasion. | `skill chance = finesse / 1000` (planned) |
 
 - Damage reduction: `effectiveArmor = max(0, armor − penetration)`, `reduction = effectiveArmor / (effectiveArmor + 100)`.
+- Current battle evasion uses Agility: `min(35%, agility / (agility + 1900))`, yielding 5% at 100 Agility.
 - *All formulas are placeholders to be tuned.*
 
 ### 3.6 Trait Growth Bonuses
@@ -125,9 +126,9 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
 - Growth is not meant to be balanced across characters; it expresses the character's fantasy.
 
 ### 3.7 Unique Gear
-- Each character owns one unique gear piece (weapon or similar) that boosts an effect tied to one trait (`trait`, `effect`, `value` in percent), further rewarding the correct build.
-- Example: **Longshot Rifle** (Sniper) — `+25%` bonus to penetrated damage from the Impact calculation.
-- Current effects: `damage`, `attack_speed`, `penetration_damage`, `armor`, `skill_trigger`, `dodge`, `counter_damage`.
+- Each character owns a gear record containing an `id`, `name`, and descriptive `description`.
+- The gear `id` is the identifier used to register its combat behavior; gear descriptions are display text, not executable rules.
+- Example: **Battle-worn Katana** (`gear_003`) — every third attack, including an evaded one, immediately schedules an additional Agility-based double-slash in the simulation.
 
 ### 3.8 Positional Affinity
 - Similar to *Umamusume* running strategies (Front Runner, etc.). Four range steps (JSON key in brackets):
@@ -144,6 +145,13 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
   - `E`/`F`: can never reach `A` or `S` (capped at `B`).
 - Example: **Lonesome Sniper** — Front `F`, Close `E`, Mid `C`, Back `A`.
 - Affinity will scale combat effectiveness when a character is deployed in a given squad position (multipliers TBD).
+
+### 3.9 Skills
+- Skill definitions live in `data/skills.json` and may declare allowed battle lanes. Skill effects and their mechanics are implemented in code, not modeled in JSON.
+- Every skill version has its own ID; the learned skill list stores those IDs directly.
+- Selective Targeting Basic (`skill_001a`) costs 25 skill points; Advanced (`skill_001b`) costs 25 additional skill points.
+- Selective Targeting has no lane requirement. When the foremost occupied enemy lane has multiple living targets, it has a 25% basic / 40% advanced chance to choose the lowest-health one.
+- For the current test battle, every character and enemy is granted the basic version. Only successful triggers are included in replay logs.
 
 ---
 
@@ -187,8 +195,12 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
 - Upon round 36 completion, the run completes and trainee is prepared for graduation.
 
 ### 4.2 PvE Auto-Battler (Combat)
-- Squad selection: Assemble up to 3–5 trained characters into a battle line, assigning each to Front Line, Close Range, Mid Range or Back Line according to positional affinity.
-- Automated combat resolution: Characters use normal attacks and trigger unlocked skills based on cooldowns, conditions, and tactical priority against abominations.
+- Current prototype: Load up to eight recent finished trainees with distinct character IDs and automatically place them in the highest-affinity available slots (two each in Front, Close, Mid and Back).
+- Enemy formation supports up to three combatants each in Front, Mid and Back; current training dummies start in Mid.
+- Enemies are loaded from `data/enemy.json`; tier is an integer mapped to Grunt (1), Elite (2), and Boss (3). Current training dummies are Grunts and carry Basic Selective Targeting.
+- Gear `gear_001` lets its bearer assassinate one Grunt below half health once per battle; it may select a Grunt from any lane.
+- Attacks prioritize the foremost lane with living opponents, then choose a living target uniformly at random within that lane. Skill-driven target changes and priorities are future extensions.
+- Automated combat resolution: Each combatant attacks independently based on agility; unlocked skills and conditions will extend this system later.
 
 ---
 
@@ -204,6 +216,7 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
   - `GET /training/state?player_id={id}`: Fetches current run state.
   - `GET /training/train?player_id={id}&facility={power|agility|impact|defense|finesse}`: Executes training action on the selected facility.
   - `GET /training/rest?player_id={id}`: Executes rest action to recover energy.
+  - `GET /battle?player_id={id}`: Simulates the battle immediately and returns positioned combatants with timestamped replay actions.
 - **Data Stores**:
   - `data/characters.json`: Character catalog definitions with integer `tier` (`1`, `2`, `3`).
   - `data/support_cards.json`: Support card catalog definitions with integer `tier` (`1`, `2`, `3`) and assigned `facility`.

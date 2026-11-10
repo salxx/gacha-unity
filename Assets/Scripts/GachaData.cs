@@ -81,16 +81,24 @@ public class PositionAffinity
 }
 
 /// <summary>
-/// Unique gear of a character: boosts an effect linked to one trait (value in percent).
+/// Unique character gear and its effect description.
 /// </summary>
 [Serializable]
 public class GearData
 {
     public string id;
     public string name;
-    public string trait;  // "power" | "agility" | "impact" | "defense" | "finesse"
-    public string effect; // e.g. "penetration_damage", "armor", "skill_trigger"
-    public int value;
+    public string description;
+}
+
+[Serializable]
+public class SkillDefinitionData
+{
+    public string id;
+    public string name;
+    public string[] lane_restrictions = Array.Empty<string>();
+    public string description;
+    public int skill_point_cost;
 }
 
 /// <summary>
@@ -130,6 +138,7 @@ public class CharacterData
     public Traits growth = new Traits();
     public PositionAffinity affinity = new PositionAffinity();
     public GearData gear;
+    public string[] skills = Array.Empty<string>();
 
     public string StarsDisplay
     {

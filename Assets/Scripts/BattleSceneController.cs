@@ -16,13 +16,14 @@ public sealed class BattleSceneController : MonoBehaviour
 
     private const float PlaybackSpeed = 1f;
     private const float FloatingDamageDuration = 1.2f;
+    private const float FloatingTextQueueGap = 0.3f;
     private const float FloatingDamageStartOffset = 0.05f;
     private const float FloatingDamageEndOffset = 0.2f;
     private const float AttackDashDuration = 0.25f;
     private const float AttackDashDistance = 0.15f;
     private const float VictoryDelay = 1f;
     private const float EnemyDisappearDuration = 1.5f;
-    private const float VictoryCheerDuration = 1f;
+    private const float VictoryCheerDuration = 0.75f;
     private const float VictoryCheerHeight = 0.12f;
     private const float VictoryExitDuration = 2f;
     private readonly Dictionary<string, BattleCombatant> combatantsById =
@@ -119,6 +120,7 @@ public sealed class BattleSceneController : MonoBehaviour
 
         int characterCount = 0;
         int enemyCount = 0;
+        Dictionary<string, int> positionCounts = new Dictionary<string, int>();
         foreach (BattleCombatant combatant in replay.combatants)
         {
             if (combatant == null || string.IsNullOrEmpty(combatant.id)
@@ -135,9 +137,26 @@ public sealed class BattleSceneController : MonoBehaviour
             {
                 enemyCount++;
             }
+            else
+            {
+                return false;
+            }
+
+            string position = GetPosition(combatant);
+            if (combatant.side == "enemy" && position == "close")
+            {
+                return false;
+            }
+            string key = combatant.side + ":" + position;
+            positionCounts.TryGetValue(key, out int positionCount);
+            positionCounts[key] = positionCount + 1;
+            if (positionCounts[key] > (combatant.side == "character" ? 2 : 3))
+            {
+                return false;
+            }
         }
 
-        return characterCount > 0 && enemyCount > 0;
+        return characterCount > 0 && characterCount <= 8 && enemyCount > 0 && enemyCount <= 9;
     }
 
     private bool InitializeCombatants(List<BattleCombatant> combatants)
@@ -148,19 +167,56 @@ public sealed class BattleSceneController : MonoBehaviour
         lastAttackTimesById.Clear();
         RectTransform canvasRect = (RectTransform)logText.canvas.rootCanvas.transform;
 
+        int characterCount = 0;
+        int enemyCount = 0;
+        foreach (BattleCombatant combatant in combatants)
+        {
+            if (combatant.side == "character")
+            {
+                characterCount++;
+            }
+            else
+            {
+                enemyCount++;
+            }
+        }
+        if (!EnsureImageCapacity(ref characterImages, characterCount, "character")
+            || !EnsureImageCapacity(ref enemyImages, enemyCount, "enemy"))
+        {
+            return false;
+        }
+
         foreach (Image image in characterImages)
         {
+            if (image == null)
+            {
+                continue;
+            }
             image.gameObject.SetActive(false);
             image.color = Color.white;
         }
         foreach (Image image in enemyImages)
         {
+            if (image == null)
+            {
+                continue;
+            }
             image.gameObject.SetActive(false);
             image.color = Color.white;
         }
 
         int characterIndex = 0;
         int enemyIndex = 0;
+        Dictionary<string, int> positionSlotCounts = new Dictionary<string, int>();
+        Dictionary<string, int> positionSlotIndices = new Dictionary<string, int>();
+        foreach (BattleCombatant combatant in combatants)
+        {
+            string position = GetPosition(combatant);
+            string key = combatant.side + ":" + position;
+            positionSlotCounts.TryGetValue(key, out int count);
+            positionSlotCounts[key] = count + 1;
+        }
+
         foreach (BattleCombatant combatant in combatants)
         {
             Image[] sideImages = combatant.side == "character" ? characterImages : enemyImages;
@@ -172,6 +228,10 @@ public sealed class BattleSceneController : MonoBehaviour
             }
 
             Image image = sideImages[sideIndex];
+            string position = GetPosition(combatant);
+            string positionKey = combatant.side + ":" + position;
+            positionSlotIndices.TryGetValue(positionKey, out int slotIndex);
+            positionSlotIndices[positionKey] = slotIndex + 1;
             if (combatant.side == "character" && !string.IsNullOrEmpty(combatant.character_id))
             {
                 Sprite characterSprite = Resources.Load<Sprite>(
@@ -192,6 +252,14 @@ public sealed class BattleSceneController : MonoBehaviour
 
             sliders[0].transform.SetParent(canvasRect, true);
             sliders[1].transform.SetParent(canvasRect, true);
+            PositionCombatantImage(
+                image.rectTransform,
+                sliders,
+                canvasRect,
+                combatant.side,
+                position,
+                slotIndex,
+                positionSlotCounts[positionKey]);
             combatant.health = combatant.initial_health;
             combatantsById.Add(combatant.id, combatant);
             uiByCombatantId.Add(combatant.id, new CombatantUi(image, sliders[0], sliders[1]));
@@ -205,6 +273,105 @@ public sealed class BattleSceneController : MonoBehaviour
         }
 
         return true;
+    }
+
+    private bool EnsureImageCapacity(ref Image[] images, int requiredCount, string side)
+    {
+        images = images ?? Array.Empty<Image>();
+        if (requiredCount == 0)
+        {
+            return true;
+        }
+        Image template = null;
+        foreach (Image image in images)
+        {
+            if (image != null)
+            {
+                template = image;
+                break;
+            }
+        }
+        if (template == null)
+        {
+            ShowError("Assign at least one " + side + " image template in the Inspector.");
+            return false;
+        }
+
+        Image[] expandedImages = new Image[Mathf.Max(requiredCount, images.Length)];
+        Array.Copy(images, expandedImages, images.Length);
+        for (int i = 0; i < requiredCount; i++)
+        {
+            if (expandedImages[i] != null)
+            {
+                continue;
+            }
+            GameObject clone = Instantiate(
+                template.gameObject, template.transform.parent, false);
+            clone.name = template.name + " (" + (i + 1) + ")";
+            clone.SetActive(false);
+            expandedImages[i] = clone.GetComponent<Image>();
+        }
+        images = expandedImages;
+        return true;
+    }
+
+    private static string GetPosition(BattleCombatant combatant)
+    {
+        if (combatant.position == "front" || combatant.position == "close"
+            || combatant.position == "mid" || combatant.position == "back")
+        {
+            return combatant.position;
+        }
+        return combatant.side == "enemy" ? "mid" : "front";
+    }
+
+    private static void PositionCombatantImage(
+        RectTransform imageRect,
+        Slider[] sliders,
+        RectTransform canvasRect,
+        string side,
+        string position,
+        int slotIndex,
+        int positionCount)
+    {
+        Vector3[] sliderOffsets = new Vector3[sliders.Length];
+        for (int i = 0; i < sliders.Length; i++)
+        {
+            sliderOffsets[i] = imageRect.InverseTransformPoint(sliders[i].transform.position);
+        }
+
+        imageRect.SetParent(canvasRect, true);
+        imageRect.anchorMin = new Vector2(0.5f, 0.5f);
+        imageRect.anchorMax = new Vector2(0.5f, 0.5f);
+        imageRect.pivot = new Vector2(0.5f, 0.5f);
+
+        bool isCharacter = side == "character";
+        float scale = isCharacter
+            ? (positionCount > 1 ? 0.65f : 0.8f)
+            : (positionCount > 2 ? 0.36f : positionCount > 1 ? 0.44f : 0.52f);
+        float xFraction = position == "front" ? 0.14f
+            : position == "close" ? 0.24f
+            : position == "mid" ? 0.34f
+            : 0.44f;
+        if (!isCharacter && position == "mid")
+        {
+            xFraction = 0.29f;
+        }
+
+        float rowSpacing = Mathf.Min(
+            canvasRect.rect.height * 0.25f, imageRect.rect.height * scale * 1.08f);
+        float centeredRow = slotIndex - (positionCount - 1) * 0.5f;
+        float horizontalDirection = isCharacter ? -1f : 1f;
+        imageRect.localScale = new Vector3(
+            (isCharacter ? -1f : 1f) * scale, scale, 1f);
+        imageRect.anchoredPosition = new Vector2(
+            canvasRect.rect.width * xFraction * horizontalDirection,
+            -centeredRow * rowSpacing);
+
+        for (int i = 0; i < sliders.Length; i++)
+        {
+            sliders[i].transform.position = imageRect.TransformPoint(sliderOffsets[i]);
+        }
     }
 
     private IEnumerator PlayActions(List<BattleAction> actions)
@@ -233,8 +400,11 @@ public sealed class BattleSceneController : MonoBehaviour
             {
                 float direction = attacker.side == "character" ? 1f : -1f;
                 StartCoroutine(AnimateAttackDash(attackerUi.image.rectTransform, direction));
-                lastAttackTimesById[action.attacker_id] = actionTime;
-                SetCooldown(attackerUi.cooldownSlider, 0f);
+                if (action.type == "attack" || action.type == "assassinate")
+                {
+                    lastAttackTimesById[action.attacker_id] = actionTime;
+                    SetCooldown(attackerUi.cooldownSlider, 0f);
+                }
             }
 
             targetUi.slider.value = Mathf.Clamp(action.target_health, 0, target.max_health);
@@ -246,26 +416,48 @@ public sealed class BattleSceneController : MonoBehaviour
             }
             if (action.damage > 0)
             {
-                StartCoroutine(ShowFloatingText(
-                    targetUi.image, "-" + action.damage, new Color(0.6f, 0.08f, 0.08f, 1f)));
+                QueueFloatingText(
+                    targetUi, "-" + action.damage, new Color(0.6f, 0.08f, 0.08f, 1f));
             }
             else if (action.evaded)
             {
-                StartCoroutine(ShowFloatingText(
-                    targetUi.image, "Evade", new Color(0.2f, 0.2f, 0.2f, 1f)));
+                QueueFloatingText(targetUi, "Evade", new Color(0.2f, 0.2f, 0.2f, 1f));
             }
 
             string attackerName = namesById[action.attacker_id];
             string targetName = namesById[action.target_id];
+            string attackName = action.type switch
+            {
+                "double_slash" => "double-slash",
+                "assassinate" => "assassination",
+                _ => "attack"
+            };
+            if (action.triggered_skills != null)
+            {
+                foreach (BattleTriggeredSkill triggeredSkill in action.triggered_skills)
+                {
+                    if (triggeredSkill != null)
+                    {
+                        AppendLog(FormatTime(action.time_seconds) + " " + attackerName
+                            + " triggered " + triggeredSkill.name + ".");
+                    }
+                }
+            }
             if (action.evaded)
             {
                 AppendLog(FormatTime(action.time_seconds) + " " + targetName + " evaded "
-                    + attackerName + "'s attack #" + action.attacker_attack_count + ".");
+                    + attackerName + "'s " + attackName + " #" + action.attacker_attack_count + ".");
+            }
+            else if (action.type == "assassinate")
+            {
+                AppendLog(FormatTime(action.time_seconds) + " " + attackerName
+                    + " assassinated " + targetName + " for " + action.damage
+                    + " damage. " + target.health + " -> " + action.target_health + " HP.");
             }
             else
             {
-                AppendLog(FormatTime(action.time_seconds) + " " + attackerName + " attack #"
-                    + action.attacker_attack_count + " hit "
+                AppendLog(FormatTime(action.time_seconds) + " " + attackerName + " "
+                    + attackName + " #" + action.attacker_attack_count + " hit "
                     + targetName + " for " + action.damage + " damage. "
                     + target.health + " -> " + action.target_health + " HP.");
             }
@@ -288,6 +480,27 @@ public sealed class BattleSceneController : MonoBehaviour
     {
         float safeAgility = Mathf.Max(1f, agility);
         return Mathf.Max(0.5f, 3f - 1.25f * Mathf.Log10(safeAgility / 100f));
+    }
+
+    private void QueueFloatingText(CombatantUi combatantUi, string message, Color color)
+    {
+        combatantUi.floatingTexts.Enqueue(new FloatingTextRequest(message, color));
+        if (!combatantUi.isDisplayingFloatingText)
+        {
+            StartCoroutine(DisplayFloatingTextQueue(combatantUi));
+        }
+    }
+
+    private IEnumerator DisplayFloatingTextQueue(CombatantUi combatantUi)
+    {
+        combatantUi.isDisplayingFloatingText = true;
+        while (combatantUi.floatingTexts.Count > 0)
+        {
+            FloatingTextRequest request = combatantUi.floatingTexts.Dequeue();
+            StartCoroutine(ShowFloatingText(combatantUi.image, request.message, request.color));
+            yield return new WaitForSeconds(FloatingTextQueueGap);
+        }
+        combatantUi.isDisplayingFloatingText = false;
     }
 
     private IEnumerator ShowFloatingText(Image targetImage, string message, Color textColor)
@@ -341,7 +554,7 @@ public sealed class BattleSceneController : MonoBehaviour
             floatingText.color = color;
             yield return null;
         }
-
+        Destroy(textObject);
         Destroy(textObject);
     }
 
@@ -511,12 +724,27 @@ public sealed class BattleSceneController : MonoBehaviour
         public readonly Image image;
         public readonly Slider slider;
         public readonly Slider cooldownSlider;
+        public readonly Queue<FloatingTextRequest> floatingTexts =
+            new Queue<FloatingTextRequest>();
+        public bool isDisplayingFloatingText;
 
         public CombatantUi(Image image, Slider slider, Slider cooldownSlider)
         {
             this.image = image;
             this.slider = slider;
             this.cooldownSlider = cooldownSlider;
+        }
+    }
+
+    private readonly struct FloatingTextRequest
+    {
+        public readonly string message;
+        public readonly Color color;
+
+        public FloatingTextRequest(string message, Color color)
+        {
+            this.message = message;
+            this.color = color;
         }
     }
 
@@ -564,6 +792,9 @@ public sealed class BattleSceneController : MonoBehaviour
         public string side;
         public string name;
         public string character_id;
+        public string enemy_id;
+        public int tier;
+        public string position;
         public BattleTraits traits;
         public int max_health;
         public int initial_health;
@@ -593,5 +824,13 @@ public sealed class BattleSceneController : MonoBehaviour
         public bool evaded;
         public int damage;
         public int target_health;
+        public BattleTriggeredSkill[] triggered_skills;
+    }
+
+    [Serializable]
+    private sealed class BattleTriggeredSkill
+    {
+        public string id;
+        public string name;
     }
 }
