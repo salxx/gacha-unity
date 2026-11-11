@@ -462,7 +462,8 @@ public class GameClient : Singleton<GameClient>
 
     public void UpdateTrainingButtonLabel()
     {
-        string labelText = (CurrentTrainingRun != null && CurrentTrainingRun.status == "active")
+        string labelText = (CurrentTrainingRun != null
+                            && (CurrentTrainingRun.status == "active" || CurrentTrainingRun.status == "completed"))
             ? "Continue Training"
             : "Start Training";
 
@@ -590,9 +591,6 @@ public class GameClient : Singleton<GameClient>
             onSuccess?.Invoke();
         }, error =>
         {
-            CurrentTrainingRun = null;
-            UpdateTrainingButtonLabel();
-            OnTrainingRunUpdated?.Invoke(null);
             onError?.Invoke(error);
         }));
     }
@@ -625,6 +623,61 @@ public class GameClient : Singleton<GameClient>
             UpdateTrainingButtonLabel();
             OnTrainingRunUpdated?.Invoke(CurrentTrainingRun);
             onSuccess?.Invoke(response);
+        }, error => { onError?.Invoke(error); }));
+    }
+
+    public void FetchTrainingSkills(
+        Action<TrainingSkillsResponse> onSuccess, Action<string> onError = null)
+    {
+        if (!IsLoggedIn)
+        {
+            onError?.Invoke("You must be logged in to load training skills.");
+            return;
+        }
+
+        string query = $"/training/skills?player_id={UnityWebRequest.EscapeURL(CurrentPlayer.playerId)}";
+        StartCoroutine(Get(query, json =>
+        {
+            TrainingSkillsResponse response = JsonUtility.FromJson<TrainingSkillsResponse>(json);
+            if (response == null || !response.success || response.skills == null)
+            {
+                onError?.Invoke("Invalid skill shop response from server.");
+                return;
+            }
+
+            onSuccess?.Invoke(response);
+        }, error => { onError?.Invoke(error); }));
+    }
+
+    public void PurchaseTrainingSkills(
+        string[] skillIds, Action<TrainingRunData> onSuccess, Action<string> onError = null)
+    {
+        if (!IsLoggedIn)
+        {
+            onError?.Invoke("You must be logged in to purchase training skills.");
+            return;
+        }
+        if (skillIds == null || skillIds.Length == 0)
+        {
+            onError?.Invoke("Select at least one skill to purchase.");
+            return;
+        }
+
+        string query = $"/training/skills/purchase?player_id={UnityWebRequest.EscapeURL(CurrentPlayer.playerId)}";
+        SkillPurchaseRequestData request = new SkillPurchaseRequestData { skill_ids = skillIds };
+        StartCoroutine(PostWithResponse(query, JsonUtility.ToJson(request), json =>
+        {
+            TrainingResponse response = JsonUtility.FromJson<TrainingResponse>(json);
+            if (response == null || !response.success || response.run == null)
+            {
+                onError?.Invoke("Invalid skill purchase response from server.");
+                return;
+            }
+
+            CurrentTrainingRun = response.run;
+            UpdateTrainingButtonLabel();
+            OnTrainingRunUpdated?.Invoke(CurrentTrainingRun);
+            onSuccess?.Invoke(CurrentTrainingRun);
         }, error => { onError?.Invoke(error); }));
     }
 
@@ -669,9 +722,22 @@ public class GameClient : Singleton<GameClient>
 
     public void OnGachaSceneClosed()
     {
+        if (mainCanvas != null)
+        {
+            mainCanvas.gameObject.SetActive(true);
+        }
+
         if (trainingButton != null)
         {
             trainingButton.gameObject.SetActive(true);
+        }
+    }
+
+    public void OnGachaSceneOpened()
+    {
+        if (mainCanvas != null)
+        {
+            mainCanvas.gameObject.SetActive(false);
         }
     }
 
@@ -828,6 +894,12 @@ public class GameClient : Singleton<GameClient>
 
     private IEnumerator Post(string path, string json, Action onSuccess, Action<string> onError)
     {
+        yield return PostWithResponse(path, json, _ => onSuccess?.Invoke(), onError);
+    }
+
+    private IEnumerator PostWithResponse(
+        string path, string json, Action<string> onSuccess, Action<string> onError)
+    {
         string url = backendUrl.TrimEnd('/') + path;
         using UnityWebRequest request = new UnityWebRequest(url, UnityWebRequest.kHttpVerbPOST);
         request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
@@ -843,7 +915,16 @@ public class GameClient : Singleton<GameClient>
             yield break;
         }
 
-        onSuccess?.Invoke();
+        try
+        {
+            onSuccess?.Invoke(request.downloadHandler.text);
+        }
+        catch (Exception ex)
+        {
+            string body = request.downloadHandler.text;
+            Debug.LogError($"Failed to handle response from {url}: {ex.Message}\n{body}");
+            onError?.Invoke("Invalid response from server.");
+        }
     }
 
     /// <summary>

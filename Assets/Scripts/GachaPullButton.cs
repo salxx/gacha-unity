@@ -4,13 +4,12 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 /// <summary>
-/// Pulls a pack from one banner. Visible only while logged in and no reveal sequence is running.
+/// Pulls a pack from one banner. Visibility follows login state; the parent canvas controls scene visibility.
 /// </summary>
 public class GachaPullButton : MonoBehaviour
 {
     private const string GachaSceneName = "GachaScene";
     private static bool isGachaSceneBusy;
-    private static event System.Action GachaSceneAvailabilityChanged;
 
     [SerializeField] private Button pullButton;
 
@@ -30,9 +29,6 @@ public class GachaPullButton : MonoBehaviour
 
         pullButton.onClick.AddListener(OnPullButtonClicked);
         client.OnLoginSuccess += RefreshVisibility;
-        client.OnPullFinished += RefreshVisibility;
-        client.OnPullStarted += Hide;
-        GachaSceneAvailabilityChanged += RefreshVisibility;
 
         RefreshVisibility();
     }
@@ -44,8 +40,6 @@ public class GachaPullButton : MonoBehaviour
         if (client != null)
         {
             client.OnLoginSuccess -= RefreshVisibility;
-            client.OnPullFinished -= RefreshVisibility;
-            client.OnPullStarted -= Hide;
             client.OnPullFinished -= HandlePullFinished;
         }
 
@@ -53,8 +47,6 @@ public class GachaPullButton : MonoBehaviour
         {
             activeSpawner.OnSequenceEnded -= HandleSequenceEnded;
         }
-
-        GachaSceneAvailabilityChanged -= RefreshVisibility;
     }
 
     private void OnPullButtonClicked()
@@ -66,8 +58,7 @@ public class GachaPullButton : MonoBehaviour
 
         isLoadingGachaScene = true;
         isGachaSceneBusy = true;
-        GachaSceneAvailabilityChanged?.Invoke();
-        StartCoroutine(LoadGachaSceneAndPull());
+        client.StartCoroutine(LoadGachaSceneAndPull());
     }
 
     private IEnumerator LoadGachaSceneAndPull()
@@ -84,6 +75,8 @@ public class GachaPullButton : MonoBehaviour
 
             yield return loadOperation;
         }
+
+        client.OnGachaSceneOpened();
 
         activeSpawner = GachaItemSpawner.Instance;
         if (activeSpawner == null)
@@ -109,7 +102,7 @@ public class GachaPullButton : MonoBehaviour
 
         if (!activeSpawner.IsSequenceActive || hasSequenceEnded)
         {
-            StartCoroutine(UnloadGachaScene());
+            client.StartCoroutine(UnloadGachaScene());
         }
     }
 
@@ -118,7 +111,7 @@ public class GachaPullButton : MonoBehaviour
         hasSequenceEnded = true;
         if (hasPullResponse && !isWaitingForPullResponse)
         {
-            StartCoroutine(UnloadGachaScene());
+            client.StartCoroutine(UnloadGachaScene());
         }
     }
 
@@ -156,26 +149,13 @@ public class GachaPullButton : MonoBehaviour
         hasSequenceEnded = false;
         isGachaSceneBusy = false;
         client?.OnGachaSceneClosed();
-        GachaSceneAvailabilityChanged?.Invoke();
     }
 
     private void RefreshVisibility()
     {
         if (pullButton != null)
         {
-            pullButton.gameObject.SetActive(
-                client != null
-                && client.IsLoggedIn
-                && !isGachaSceneBusy
-                && !SceneManager.GetSceneByName(GachaSceneName).isLoaded);
-        }
-    }
-
-    private void Hide()
-    {
-        if (pullButton != null)
-        {
-            pullButton.gameObject.SetActive(false);
+            pullButton.gameObject.SetActive(client != null && client.IsLoggedIn);
         }
     }
 }

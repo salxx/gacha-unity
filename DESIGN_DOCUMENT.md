@@ -212,10 +212,13 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
   - `GET /connect?player_id={id}`: Player handshake and profile load.
   - `GET /player-stats?player_id={id}`: Player token balance and pack stats.
   - `GET /gacha-pack?player_id={id}&target={character|support_card}`: Executes 10-pull pack on target banner returning integer tiers (`tier: 1..3`) and debits tokens.
-  - `GET /training/start-or-resume?player_id={id}&character_id={id}&support_card_ids={id1,id2,...}`: Returns active training run or initializes a new one.
-  - `GET /training/state?player_id={id}`: Fetches current run state.
+  - `GET /training/start-or-resume?player_id={id}&character_id={id}&support_card_ids={id1,id2,...}`: Returns an active or completed-but-unfinalized training run, or initializes a new one when none exists.
+  - `GET /training/state?player_id={id}`: Fetches the current active or completed-but-unfinalized run.
+  - `GET /training/skills?player_id={id}`: Returns the skill catalog with each skill's effective `purchase_cost` and `purchased` state for an active or completed-but-unfinalized run. Advanced skills cost the full tier total when acquired directly, or only the additional SP when upgrading an owned Basic skill.
+  - `POST /training/skills/purchase?player_id={id}` with `{"skill_ids":["skill_001a"]}`: Purchases the selected skill IDs, updates the trainee's assigned skills and both training-run SP balances, and returns the updated run. Purchases remain available until the completed run is finalized. Only one version in each skill family may be selected at once.
   - `GET /training/train?player_id={id}&facility={power|agility|impact|defense|finesse}`: Executes training action on the selected facility.
   - `GET /training/rest?player_id={id}`: Executes rest action to recover energy.
+  - `POST /training/end?player_id={id}`: Finalizes a completed run as a finished trainee and removes the pending run. Training and rest actions do not finalize a run; suspend or closing the game leaves it resumable until this endpoint succeeds.
   - `GET /battle?player_id={id}`: Simulates the battle immediately and returns positioned combatants with timestamped replay actions.
 - **Data Stores**:
   - `data/characters.json`: Character catalog definitions with integer `tier` (`1`, `2`, `3`).

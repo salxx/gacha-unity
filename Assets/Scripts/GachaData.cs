@@ -95,10 +95,26 @@ public class GearData
 public class SkillDefinitionData
 {
     public string id;
+    public string family_id;
     public string name;
     public string[] lane_restrictions = Array.Empty<string>();
     public string description;
     public int skill_point_cost;
+    public int purchase_cost;
+    public bool purchased;
+}
+
+[Serializable]
+public class TrainingSkillsResponse
+{
+    public bool success;
+    public SkillDefinitionData[] skills = Array.Empty<SkillDefinitionData>();
+}
+
+[Serializable]
+public class SkillPurchaseRequestData
+{
+    public string[] skill_ids = Array.Empty<string>();
 }
 
 /// <summary>
@@ -314,7 +330,8 @@ public class GachaReward
         traits = data?.base_traits ?? new Traits(),
         growth = data?.growth ?? new Traits(),
         affinity = data?.affinity ?? new PositionAffinity(),
-        gear = data?.gear
+        gear = data?.gear,
+        skills = data?.skills ?? Array.Empty<string>()
     };
 
     public SupportCardData ToSupportCard() => new SupportCardData

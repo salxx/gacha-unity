@@ -11,14 +11,32 @@ public sealed class BattleSceneController : MonoBehaviour
 {
     [SerializeField] private Image[] characterImages;
     [SerializeField] private Image[] enemyImages;
+    [Tooltip("Array indexes align corresponding character slots across lanes: Front[0] aligns with Close[0], Mid[0], and Back[0].")]
+    [SerializeField] private Transform[] characterFrontPositions;
+    [Tooltip("Array indexes align corresponding character slots across lanes: Close[0] aligns with Front[0], Mid[0], and Back[0].")]
+    [SerializeField] private Transform[] characterClosePositions;
+    [Tooltip("Array indexes align corresponding character slots across lanes: Mid[0] aligns with Front[0], Close[0], and Back[0].")]
+    [SerializeField] private Transform[] characterMidPositions;
+    [Tooltip("Array indexes align corresponding character slots across lanes: Back[0] aligns with Front[0], Close[0], and Mid[0].")]
+    [SerializeField] private Transform[] characterBackPositions;
+    [Tooltip("Array indexes align corresponding enemy slots across lanes: Front[0] aligns with Mid[0] and Back[0].")]
+    [SerializeField] private Transform[] enemyFrontPositions;
+    [Tooltip("Array indexes align corresponding enemy slots across lanes: Mid[0] aligns with Front[0] and Back[0].")]
+    [SerializeField] private Transform[] enemyMidPositions;
+    [Tooltip("Array indexes align corresponding enemy slots across lanes: Back[0] aligns with Front[0] and Mid[0].")]
+    [SerializeField] private Transform[] enemyBackPositions;
     [SerializeField] private TMP_Text logText;
     [SerializeField] private Button finishButton;
 
-    private const float PlaybackSpeed = 1f;
+    private const float InitialPlaybackSpeed = 1f;
+    private const float GearTriggerPauseDelay = 0.2f;
+    private const float GearTriggerTransitionDuration = 0.3f;
+    private const float GearTriggerDisplayDuration = 1f;
     private const float FloatingDamageDuration = 1.2f;
     private const float FloatingTextQueueGap = 0.3f;
     private const float FloatingDamageStartOffset = 0.05f;
     private const float FloatingDamageEndOffset = 0.2f;
+    private static readonly Color CrippledTextColor = new Color(1f, 0.5f, 0f, 1f);
     private const float AttackDashDuration = 0.25f;
     private const float AttackDashDistance = 0.15f;
     private const float VictoryDelay = 1f;
@@ -26,6 +44,11 @@ public sealed class BattleSceneController : MonoBehaviour
     private const float VictoryCheerDuration = 0.75f;
     private const float VictoryCheerHeight = 0.12f;
     private const float VictoryExitDuration = 2f;
+    private float playbackSpeed = InitialPlaybackSpeed;
+    private float previousTimeScale = 1f;
+    private bool isBattlePaused;
+    private bool isShowingGearIntro;
+    private GameObject activeGearIntroObject;
     private readonly Dictionary<string, BattleCombatant> combatantsById =
         new Dictionary<string, BattleCombatant>();
     private readonly Dictionary<string, CombatantUi> uiByCombatantId =
@@ -34,16 +57,65 @@ public sealed class BattleSceneController : MonoBehaviour
         new Dictionary<string, string>();
     private readonly Dictionary<string, float> lastAttackTimesById =
         new Dictionary<string, float>();
+    private readonly Dictionary<string, CrippledTextState> crippledTextsByCombatantId =
+        new Dictionary<string, CrippledTextState>();
+    private readonly HashSet<string> combatantsWithGearIntro =
+        new HashSet<string>();
     private readonly StringBuilder logBuilder = new StringBuilder();
 
     private void OnEnable()
     {
+        previousTimeScale = Time.timeScale;
+        isBattlePaused = false;
+        isShowingGearIntro = false;
+        ApplyPlaybackTimeScale();
         finishButton.onClick.AddListener(FinishBattle);
     }
 
     private void OnDisable()
     {
         finishButton.onClick.RemoveListener(FinishBattle);
+        isBattlePaused = false;
+        isShowingGearIntro = false;
+        if (activeGearIntroObject != null)
+        {
+            Destroy(activeGearIntroObject);
+            activeGearIntroObject = null;
+        }
+        Time.timeScale = previousTimeScale;
+    }
+
+    public void PauseBattle()
+    {
+        isBattlePaused = true;
+        ApplyPlaybackTimeScale();
+    }
+
+    public void ResumeBattle()
+    {
+        isBattlePaused = false;
+        ApplyPlaybackTimeScale();
+    }
+
+    public void SetPlaybackSpeed(float speed)
+    {
+        if (speed <= 0f || float.IsNaN(speed) || float.IsInfinity(speed))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(speed), "Playback speed must be positive and finite.");
+        }
+
+        playbackSpeed = speed;
+        ApplyPlaybackTimeScale();
+    }
+
+    private void ApplyPlaybackTimeScale()
+    {
+        if (!isActiveAndEnabled)
+        {
+            return;
+        }
+        Time.timeScale = isBattlePaused || isShowingGearIntro ? 0f : playbackSpeed;
     }
 
     private void Start()
@@ -165,6 +237,8 @@ public sealed class BattleSceneController : MonoBehaviour
         uiByCombatantId.Clear();
         namesById.Clear();
         lastAttackTimesById.Clear();
+        crippledTextsByCombatantId.Clear();
+        combatantsWithGearIntro.Clear();
         RectTransform canvasRect = (RectTransform)logText.canvas.rootCanvas.transform;
 
         int characterCount = 0;
@@ -182,6 +256,10 @@ public sealed class BattleSceneController : MonoBehaviour
         }
         if (!EnsureImageCapacity(ref characterImages, characterCount, "character")
             || !EnsureImageCapacity(ref enemyImages, enemyCount, "enemy"))
+        {
+            return false;
+        }
+        if (!TryAssignRandomEnemySlots(combatants, out Dictionary<string, int> enemySlotIndices))
         {
             return false;
         }
@@ -207,15 +285,9 @@ public sealed class BattleSceneController : MonoBehaviour
 
         int characterIndex = 0;
         int enemyIndex = 0;
-        Dictionary<string, int> positionSlotCounts = new Dictionary<string, int>();
         Dictionary<string, int> positionSlotIndices = new Dictionary<string, int>();
-        foreach (BattleCombatant combatant in combatants)
-        {
-            string position = GetPosition(combatant);
-            string key = combatant.side + ":" + position;
-            positionSlotCounts.TryGetValue(key, out int count);
-            positionSlotCounts[key] = count + 1;
-        }
+        List<CombatantRenderOrder> combatantRenderOrder =
+            new List<CombatantRenderOrder>();
 
         foreach (BattleCombatant combatant in combatants)
         {
@@ -229,9 +301,24 @@ public sealed class BattleSceneController : MonoBehaviour
 
             Image image = sideImages[sideIndex];
             string position = GetPosition(combatant);
-            string positionKey = combatant.side + ":" + position;
-            positionSlotIndices.TryGetValue(positionKey, out int slotIndex);
-            positionSlotIndices[positionKey] = slotIndex + 1;
+            int slotIndex;
+            if (combatant.side == "enemy")
+            {
+                slotIndex = enemySlotIndices[combatant.id];
+            }
+            else
+            {
+                string positionKey = combatant.side + ":" + position;
+                positionSlotIndices.TryGetValue(positionKey, out slotIndex);
+                positionSlotIndices[positionKey] = slotIndex + 1;
+            }
+            Transform[] lanePositions = GetLanePositions(combatant.side, position);
+            if (slotIndex >= lanePositions.Length || lanePositions[slotIndex] == null)
+            {
+                ShowError("Assign a " + combatant.side + " position GameObject for "
+                    + position + " slot " + (slotIndex + 1) + " in the Inspector.");
+                return false;
+            }
             if (combatant.side == "character" && !string.IsNullOrEmpty(combatant.character_id))
             {
                 Sprite characterSprite = Resources.Load<Sprite>(
@@ -250,19 +337,17 @@ public sealed class BattleSceneController : MonoBehaviour
                 return false;
             }
 
-            sliders[0].transform.SetParent(canvasRect, true);
-            sliders[1].transform.SetParent(canvasRect, true);
             PositionCombatantImage(
                 image.rectTransform,
                 sliders,
                 canvasRect,
-                combatant.side,
-                position,
-                slotIndex,
-                positionSlotCounts[positionKey]);
+                lanePositions[slotIndex]);
             combatant.health = combatant.initial_health;
             combatantsById.Add(combatant.id, combatant);
-            uiByCombatantId.Add(combatant.id, new CombatantUi(image, sliders[0], sliders[1]));
+            CombatantUi combatantUi = new CombatantUi(image, sliders[0], sliders[1]);
+            uiByCombatantId.Add(combatant.id, combatantUi);
+            combatantRenderOrder.Add(new CombatantRenderOrder(
+                combatant.side, position, slotIndex, combatantUi));
             lastAttackTimesById.Add(combatant.id, 0f);
             namesById.Add(combatant.id, string.IsNullOrEmpty(combatant.name)
                 ? combatant.side
@@ -272,6 +357,88 @@ public sealed class BattleSceneController : MonoBehaviour
             image.gameObject.SetActive(true);
         }
 
+        SortCombatantRenderOrder(combatantRenderOrder);
+        return true;
+    }
+
+    private static void SortCombatantRenderOrder(List<CombatantRenderOrder> combatants)
+    {
+        combatants.Sort((left, right) =>
+        {
+            int sideOrder = string.CompareOrdinal(left.side, right.side);
+            if (sideOrder != 0)
+            {
+                return sideOrder;
+            }
+
+            int laneOrder = string.CompareOrdinal(left.position, right.position);
+            return laneOrder != 0
+                ? laneOrder
+                : left.slotIndex.CompareTo(right.slotIndex);
+        });
+
+        foreach (CombatantRenderOrder combatant in combatants)
+        {
+            combatant.ui.slider.transform.SetAsLastSibling();
+            combatant.ui.cooldownSlider.transform.SetAsLastSibling();
+            combatant.ui.image.transform.SetAsLastSibling();
+        }
+    }
+
+    private bool TryAssignRandomEnemySlots(
+        List<BattleCombatant> combatants,
+        out Dictionary<string, int> slotIndices)
+    {
+        slotIndices = new Dictionary<string, int>();
+        HashSet<string> processedLanes = new HashSet<string>();
+        foreach (BattleCombatant combatant in combatants)
+        {
+            if (combatant.side != "enemy")
+            {
+                continue;
+            }
+
+            string lane = GetPosition(combatant);
+            if (!processedLanes.Add(lane))
+            {
+                continue;
+            }
+
+            List<BattleCombatant> laneEnemies = new List<BattleCombatant>();
+            foreach (BattleCombatant candidate in combatants)
+            {
+                if (candidate.side == "enemy" && GetPosition(candidate) == lane)
+                {
+                    laneEnemies.Add(candidate);
+                }
+            }
+
+            Transform[] lanePositions = GetLanePositions("enemy", lane);
+            List<int> availableSlots = new List<int>();
+            for (int i = 0; i < lanePositions.Length; i++)
+            {
+                if (lanePositions[i] != null)
+                {
+                    availableSlots.Add(i);
+                }
+            }
+            if (laneEnemies.Count > availableSlots.Count)
+            {
+                ShowError("Assign a position GameObject for every enemy in the " + lane + " lane.");
+                return false;
+            }
+
+            for (int i = 0; i < availableSlots.Count; i++)
+            {
+                int swapIndex = UnityEngine.Random.Range(i, availableSlots.Count);
+                (availableSlots[i], availableSlots[swapIndex]) =
+                    (availableSlots[swapIndex], availableSlots[i]);
+            }
+            for (int i = 0; i < laneEnemies.Count; i++)
+            {
+                slotIndices.Add(laneEnemies[i].id, availableSlots[i]);
+            }
+        }
         return true;
     }
 
@@ -325,48 +492,44 @@ public sealed class BattleSceneController : MonoBehaviour
         return combatant.side == "enemy" ? "mid" : "front";
     }
 
+    private Transform[] GetLanePositions(string side, string lane)
+    {
+        if (side == "character")
+        {
+            return lane switch
+            {
+                "front" => characterFrontPositions ?? Array.Empty<Transform>(),
+                "close" => characterClosePositions ?? Array.Empty<Transform>(),
+                "mid" => characterMidPositions ?? Array.Empty<Transform>(),
+                "back" => characterBackPositions ?? Array.Empty<Transform>(),
+                _ => Array.Empty<Transform>()
+            };
+        }
+
+        return lane switch
+        {
+            "front" => enemyFrontPositions ?? Array.Empty<Transform>(),
+            "mid" => enemyMidPositions ?? Array.Empty<Transform>(),
+            "back" => enemyBackPositions ?? Array.Empty<Transform>(),
+            _ => Array.Empty<Transform>()
+        };
+    }
+
     private static void PositionCombatantImage(
         RectTransform imageRect,
         Slider[] sliders,
         RectTransform canvasRect,
-        string side,
-        string position,
-        int slotIndex,
-        int positionCount)
+        Transform lanePosition)
     {
         Vector3[] sliderOffsets = new Vector3[sliders.Length];
         for (int i = 0; i < sliders.Length; i++)
         {
             sliderOffsets[i] = imageRect.InverseTransformPoint(sliders[i].transform.position);
+            sliders[i].transform.SetParent(canvasRect, true);
         }
 
         imageRect.SetParent(canvasRect, true);
-        imageRect.anchorMin = new Vector2(0.5f, 0.5f);
-        imageRect.anchorMax = new Vector2(0.5f, 0.5f);
-        imageRect.pivot = new Vector2(0.5f, 0.5f);
-
-        bool isCharacter = side == "character";
-        float scale = isCharacter
-            ? (positionCount > 1 ? 0.65f : 0.8f)
-            : (positionCount > 2 ? 0.36f : positionCount > 1 ? 0.44f : 0.52f);
-        float xFraction = position == "front" ? 0.14f
-            : position == "close" ? 0.24f
-            : position == "mid" ? 0.34f
-            : 0.44f;
-        if (!isCharacter && position == "mid")
-        {
-            xFraction = 0.29f;
-        }
-
-        float rowSpacing = Mathf.Min(
-            canvasRect.rect.height * 0.25f, imageRect.rect.height * scale * 1.08f);
-        float centeredRow = slotIndex - (positionCount - 1) * 0.5f;
-        float horizontalDirection = isCharacter ? -1f : 1f;
-        imageRect.localScale = new Vector3(
-            (isCharacter ? -1f : 1f) * scale, scale, 1f);
-        imageRect.anchoredPosition = new Vector2(
-            canvasRect.rect.width * xFraction * horizontalDirection,
-            -centeredRow * rowSpacing);
+        imageRect.position = lanePosition.position;
 
         for (int i = 0; i < sliders.Length; i++)
         {
@@ -384,7 +547,7 @@ public sealed class BattleSceneController : MonoBehaviour
             {
                 yield return null;
                 previousTime = Mathf.Min(
-                    actionTime, previousTime + Time.deltaTime * PlaybackSpeed);
+                    actionTime, previousTime + Time.deltaTime);
                 UpdateCooldowns(previousTime);
             }
 
@@ -395,12 +558,21 @@ public sealed class BattleSceneController : MonoBehaviour
                 yield break;
             }
 
+            if (IsGearEffectTrigger(action)
+                && combatantsById.TryGetValue(action.attacker_id, out BattleCombatant gearAttacker)
+                && gearAttacker.side == "character"
+                && uiByCombatantId.TryGetValue(action.attacker_id, out CombatantUi gearAttackerUi)
+                && combatantsWithGearIntro.Add(action.attacker_id))
+            {
+                yield return ShowGearTriggerIntro(gearAttackerUi.image);
+            }
+
             if (combatantsById.TryGetValue(action.attacker_id, out BattleCombatant attacker)
                 && uiByCombatantId.TryGetValue(action.attacker_id, out CombatantUi attackerUi))
             {
                 float direction = attacker.side == "character" ? 1f : -1f;
                 StartCoroutine(AnimateAttackDash(attackerUi.image.rectTransform, direction));
-                if (action.type == "attack" || action.type == "assassinate")
+                if (action.type == "attack" || action.type == "execute")
                 {
                     lastAttackTimesById[action.attacker_id] = actionTime;
                     SetCooldown(attackerUi.cooldownSlider, 0f);
@@ -429,7 +601,7 @@ public sealed class BattleSceneController : MonoBehaviour
             string attackName = action.type switch
             {
                 "double_slash" => "double-slash",
-                "assassinate" => "assassination",
+                "execute" => "execute",
                 _ => "attack"
             };
             if (action.triggered_skills != null)
@@ -443,15 +615,35 @@ public sealed class BattleSceneController : MonoBehaviour
                     }
                 }
             }
+            if (action.triggered_effects != null)
+            {
+                foreach (BattleTriggeredEffect triggeredEffect in action.triggered_effects)
+                {
+                    if (triggeredEffect != null)
+                    {
+                        if (triggeredEffect.id == "gear_002")
+                        {
+                            ShowCrippledText(
+                                target.id,
+                                targetUi.image,
+                                triggeredEffect.duration_seconds);
+                        }
+                        AppendLog(FormatTime(action.time_seconds) + " " + attackerName
+                            + " triggered " + triggeredEffect.name + " on " + targetName
+                            + ", halving remaining damage mitigation after Impact for "
+                            + triggeredEffect.duration_seconds.ToString("0.###") + "s.");
+                    }
+                }
+            }
             if (action.evaded)
             {
                 AppendLog(FormatTime(action.time_seconds) + " " + targetName + " evaded "
                     + attackerName + "'s " + attackName + " #" + action.attacker_attack_count + ".");
             }
-            else if (action.type == "assassinate")
+            else if (action.type == "execute")
             {
                 AppendLog(FormatTime(action.time_seconds) + " " + attackerName
-                    + " assassinated " + targetName + " for " + action.damage
+                    + " executed " + targetName + " for " + action.damage
                     + " damage. " + target.health + " -> " + action.target_health + " HP.");
             }
             else
@@ -463,6 +655,26 @@ public sealed class BattleSceneController : MonoBehaviour
             }
             target.health = action.target_health;
         }
+    }
+
+    private static bool IsGearEffectTrigger(BattleAction action)
+    {
+        if (action.type == "execute" || action.type == "double_slash")
+        {
+            return true;
+        }
+        if (action.triggered_effects == null)
+        {
+            return false;
+        }
+        foreach (BattleTriggeredEffect effect in action.triggered_effects)
+        {
+            if (effect != null)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void UpdateCooldowns(float simulationTime)
@@ -508,40 +720,17 @@ public sealed class BattleSceneController : MonoBehaviour
         Canvas canvas = targetImage.canvas.rootCanvas;
         RectTransform canvasRect = (RectTransform)canvas.transform;
         RectTransform imageRect = targetImage.rectTransform;
-        Rect imageBounds = imageRect.rect;
         Camera eventCamera = canvas.renderMode == RenderMode.ScreenSpaceOverlay
             ? null
             : canvas.worldCamera;
-        float horizontalCenter = (imageBounds.xMin + imageBounds.xMax) * 0.5f;
-        float top = imageBounds.yMax;
-        Vector3 startWorld = imageRect.TransformPoint(
-            new Vector3(horizontalCenter, top - imageBounds.height * FloatingDamageStartOffset));
-        Vector3 endWorld = imageRect.TransformPoint(
-            new Vector3(horizontalCenter, top + imageBounds.height * FloatingDamageEndOffset));
-        Vector2 startPosition = ToCanvasPosition(startWorld, canvasRect, eventCamera);
-        Vector2 endPosition = ToCanvasPosition(endWorld, canvasRect, eventCamera);
+        Vector2 startPosition = GetTextPosition(
+            imageRect, canvasRect, eventCamera, -FloatingDamageStartOffset);
+        Vector2 endPosition = GetTextPosition(
+            imageRect, canvasRect, eventCamera, FloatingDamageEndOffset);
 
-        GameObject textObject = new GameObject(
-            "Floating Damage Text",
-            typeof(RectTransform),
-            typeof(TextMeshProUGUI));
-        RectTransform textRect = (RectTransform)textObject.transform;
-        textRect.SetParent(canvasRect, false);
-        textRect.SetAsLastSibling();
-        textRect.anchorMin = new Vector2(0.5f, 0.5f);
-        textRect.anchorMax = new Vector2(0.5f, 0.5f);
-        textRect.pivot = new Vector2(0.5f, 0.5f);
-        textRect.sizeDelta = new Vector2(200f, 60f);
-        textRect.anchoredPosition = startPosition;
-
-        TextMeshProUGUI floatingText = textObject.GetComponent<TextMeshProUGUI>();
-        floatingText.font = logText.font;
-        floatingText.fontSharedMaterial = logText.fontSharedMaterial;
-        floatingText.fontSize = Mathf.Max(24f, logText.fontSize * 1.5f);
-        floatingText.alignment = TextAlignmentOptions.Center;
-        floatingText.text = message;
-        floatingText.color = textColor;
-        floatingText.fontStyle = FontStyles.Bold;
+        TextMeshProUGUI floatingText = CreateFloatingText(
+            canvasRect, startPosition, message, textColor);
+        RectTransform textRect = floatingText.rectTransform;
 
         float elapsed = 0f;
         while (elapsed < FloatingDamageDuration)
@@ -554,8 +743,173 @@ public sealed class BattleSceneController : MonoBehaviour
             floatingText.color = color;
             yield return null;
         }
-        Destroy(textObject);
-        Destroy(textObject);
+        Destroy(floatingText.gameObject);
+    }
+
+    private void ShowCrippledText(string targetId, Image targetImage, float duration)
+    {
+        float expiresAt = Time.time + Mathf.Max(0f, duration);
+        if (crippledTextsByCombatantId.TryGetValue(targetId, out CrippledTextState existing))
+        {
+            existing.expiresAt = Mathf.Max(existing.expiresAt, expiresAt);
+            return;
+        }
+
+        Canvas canvas = targetImage.canvas.rootCanvas;
+        RectTransform canvasRect = (RectTransform)canvas.transform;
+        Camera eventCamera = canvas.renderMode == RenderMode.ScreenSpaceOverlay
+            ? null
+            : canvas.worldCamera;
+        Vector2 position = GetTextPosition(
+            targetImage.rectTransform, canvasRect, eventCamera, -FloatingDamageStartOffset);
+        TextMeshProUGUI text = CreateFloatingText(
+            canvasRect, position, "crippled", CrippledTextColor);
+        CrippledTextState state = new CrippledTextState(text, expiresAt);
+        crippledTextsByCombatantId.Add(targetId, state);
+        StartCoroutine(RemoveCrippledTextWhenExpired(targetId, state));
+    }
+
+    private IEnumerator ShowGearTriggerIntro(Image characterImage)
+    {
+        isShowingGearIntro = true;
+        ApplyPlaybackTimeScale();
+        GameObject introObject = null;
+        try
+        {
+            yield return new WaitForSecondsRealtime(GearTriggerPauseDelay);
+
+            Canvas canvas = characterImage.canvas.rootCanvas;
+            RectTransform canvasRect = (RectTransform)canvas.transform;
+            introObject = new GameObject(
+                "Gear Trigger Character",
+                typeof(RectTransform),
+                typeof(CanvasRenderer),
+                typeof(Image));
+            activeGearIntroObject = introObject;
+
+            RectTransform introRect = (RectTransform)introObject.transform;
+            introRect.SetParent(canvasRect, false);
+            introRect.SetAsLastSibling();
+            introRect.anchorMin = new Vector2(0.5f, 0.5f);
+            introRect.anchorMax = new Vector2(0.5f, 0.5f);
+            introRect.pivot = new Vector2(0.5f, 0.5f);
+            introRect.sizeDelta = canvasRect.rect.size;
+
+            Image introImage = introObject.GetComponent<Image>();
+            introImage.sprite = characterImage.sprite;
+            introImage.material = characterImage.material;
+            introImage.preserveAspect = true;
+            introImage.raycastTarget = false;
+            Color visibleColor = characterImage.color;
+            Color transparentColor = visibleColor;
+            transparentColor.a = 0f;
+            introImage.color = transparentColor;
+
+            Vector2 startPosition = new Vector2(-canvasRect.rect.width, 0f);
+            introRect.anchoredPosition = startPosition;
+            float elapsed = 0f;
+            while (elapsed < GearTriggerTransitionDuration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float progress = Mathf.SmoothStep(
+                    0f, 1f, Mathf.Clamp01(elapsed / GearTriggerTransitionDuration));
+                introRect.anchoredPosition = Vector2.Lerp(startPosition, Vector2.zero, progress);
+                Color color = visibleColor;
+                color.a = visibleColor.a * progress;
+                introImage.color = color;
+                yield return null;
+            }
+            introRect.anchoredPosition = Vector2.zero;
+            introImage.color = visibleColor;
+            yield return new WaitForSecondsRealtime(GearTriggerDisplayDuration);
+
+            Vector2 endPosition = new Vector2(canvasRect.rect.width, 0f);
+            elapsed = 0f;
+            while (elapsed < GearTriggerTransitionDuration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float progress = Mathf.SmoothStep(
+                    0f, 1f, Mathf.Clamp01(elapsed / GearTriggerTransitionDuration));
+                introRect.anchoredPosition = Vector2.Lerp(Vector2.zero, endPosition, progress);
+                Color color = visibleColor;
+                color.a = visibleColor.a * (1f - progress);
+                introImage.color = color;
+                yield return null;
+            }
+            introRect.anchoredPosition = endPosition;
+            Color hiddenColor = visibleColor;
+            hiddenColor.a = 0f;
+            introImage.color = hiddenColor;
+
+            yield return new WaitForSecondsRealtime(GearTriggerPauseDelay);
+        }
+        finally
+        {
+            if (introObject != null)
+            {
+                Destroy(introObject);
+            }
+            if (activeGearIntroObject == introObject)
+            {
+                activeGearIntroObject = null;
+            }
+            isShowingGearIntro = false;
+            ApplyPlaybackTimeScale();
+        }
+    }
+
+    private IEnumerator RemoveCrippledTextWhenExpired(string targetId, CrippledTextState state)
+    {
+        while (Time.time < state.expiresAt)
+        {
+            yield return null;
+        }
+
+        crippledTextsByCombatantId.Remove(targetId);
+        Destroy(state.text.gameObject);
+    }
+
+    private TextMeshProUGUI CreateFloatingText(
+        RectTransform canvasRect, Vector2 position, string message, Color textColor)
+    {
+        GameObject textObject = new GameObject(
+            "Floating Battle Text",
+            typeof(RectTransform),
+            typeof(TextMeshProUGUI));
+        RectTransform textRect = (RectTransform)textObject.transform;
+        textRect.SetParent(canvasRect, false);
+        textRect.SetAsLastSibling();
+        textRect.anchorMin = new Vector2(0.5f, 0.5f);
+        textRect.anchorMax = new Vector2(0.5f, 0.5f);
+        textRect.pivot = new Vector2(0.5f, 0.5f);
+        textRect.sizeDelta = new Vector2(200f, 60f);
+        textRect.anchoredPosition = position;
+
+        TextMeshProUGUI floatingText = textObject.GetComponent<TextMeshProUGUI>();
+        floatingText.font = logText.font;
+        floatingText.fontSharedMaterial = logText.fontSharedMaterial;
+        floatingText.fontSize = Mathf.Max(24f, logText.fontSize * 1.5f);
+        floatingText.alignment = TextAlignmentOptions.Center;
+        floatingText.text = message;
+        floatingText.color = textColor;
+        floatingText.fontStyle = FontStyles.Bold;
+        return floatingText;
+    }
+
+    private static Vector2 GetTextPosition(
+        RectTransform imageRect,
+        RectTransform canvasRect,
+        Camera eventCamera,
+        float verticalOffset)
+    {
+        Rect imageBounds = imageRect.rect;
+        float horizontalCenter = (imageBounds.xMin + imageBounds.xMax) * 0.5f;
+        float top = imageBounds.yMax;
+        Vector3 worldPosition = imageRect.TransformPoint(
+            new Vector3(
+                horizontalCenter,
+                top + imageBounds.height * verticalOffset));
+        return ToCanvasPosition(worldPosition, canvasRect, eventCamera);
     }
 
     private IEnumerator AnimateAttackDash(RectTransform attackerRect, float direction)
@@ -736,6 +1090,23 @@ public sealed class BattleSceneController : MonoBehaviour
         }
     }
 
+    private readonly struct CombatantRenderOrder
+    {
+        public readonly string side;
+        public readonly string position;
+        public readonly int slotIndex;
+        public readonly CombatantUi ui;
+
+        public CombatantRenderOrder(
+            string side, string position, int slotIndex, CombatantUi ui)
+        {
+            this.side = side;
+            this.position = position;
+            this.slotIndex = slotIndex;
+            this.ui = ui;
+        }
+    }
+
     private readonly struct FloatingTextRequest
     {
         public readonly string message;
@@ -745,6 +1116,19 @@ public sealed class BattleSceneController : MonoBehaviour
         {
             this.message = message;
             this.color = color;
+        }
+
+    }
+
+    private sealed class CrippledTextState
+    {
+        public readonly TextMeshProUGUI text;
+        public float expiresAt;
+
+        public CrippledTextState(TextMeshProUGUI text, float expiresAt)
+        {
+            this.text = text;
+            this.expiresAt = expiresAt;
         }
     }
 
@@ -825,6 +1209,7 @@ public sealed class BattleSceneController : MonoBehaviour
         public int damage;
         public int target_health;
         public BattleTriggeredSkill[] triggered_skills;
+        public BattleTriggeredEffect[] triggered_effects;
     }
 
     [Serializable]
@@ -832,5 +1217,13 @@ public sealed class BattleSceneController : MonoBehaviour
     {
         public string id;
         public string name;
+    }
+
+    [Serializable]
+    private sealed class BattleTriggeredEffect
+    {
+        public string id;
+        public string name;
+        public float duration_seconds;
     }
 }

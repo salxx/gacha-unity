@@ -32,6 +32,10 @@ public class TrainingManager : MonoBehaviour
     [SerializeField] private Button endTrainingButton;
     [SerializeField] private Button suspendTrainingButton;
 
+    [Header("Skill Shop")]
+    [SerializeField] private Button skillShopButton;
+    [SerializeField] private bool hidePurchasedSkills;
+
     [Header("Facility Trainee Image")]
     [SerializeField] private Image traineeImage;
     
@@ -61,6 +65,7 @@ public class TrainingManager : MonoBehaviour
 
     private ActionType pendingAction = ActionType.None;
     private bool isProcessing = false;
+    private SkillShopController skillShop;
 
     private void Start()
     {
@@ -71,6 +76,7 @@ public class TrainingManager : MonoBehaviour
         finesseFacilityButton.onClick.AddListener(() => OnActionButtonClicked(ActionType.TrainFinesse));
         restButton.onClick.AddListener(() => OnActionButtonClicked(ActionType.Rest));
         endTrainingButton.onClick.AddListener(OnEndTrainingButtonClicked);
+        skillShopButton.onClick.AddListener(OnSkillShopButtonClicked);
         if (suspendTrainingButton != null)
         {
             suspendTrainingButton.onClick.AddListener(OnSuspendTrainingButtonClicked);
@@ -92,10 +98,88 @@ public class TrainingManager : MonoBehaviour
 
     private void OnDestroy()
     {
+        skillShopButton.onClick.RemoveListener(OnSkillShopButtonClicked);
         if (GameClient.Instance != null)
         {
             GameClient.Instance.OnTrainingRunUpdated -= OnTrainingRunUpdated;
         }
+    }
+
+    private void OnSkillShopButtonClicked()
+    {
+        if (isProcessing)
+        {
+            return;
+        }
+
+        TrainingRunData run = GameClient.Instance != null ? GameClient.Instance.CurrentTrainingRun : null;
+        if (run == null)
+        {
+            ShowMessage("A training run is required to open the skill shop.", isError: true);
+            return;
+        }
+
+        Canvas canvas = skillShopButton.GetComponentInParent<Canvas>();
+        GameObject prefab = Resources.Load<GameObject>("Prefabs/SkillShop");
+        if (canvas == null || prefab == null)
+        {
+            Debug.LogError(canvas == null
+                ? "SkillShopButton is not under a Canvas."
+                : "Could not load Resources/Prefabs/SkillShop.prefab.");
+            ShowMessage("Failed to open the skill shop.", isError: true);
+            return;
+        }
+
+        if (skillShop != null)
+        {
+            Destroy(skillShop.gameObject);
+        }
+
+        GameObject shopObject = Instantiate(prefab, canvas.transform, false);
+        skillShop = shopObject.AddComponent<SkillShopController>();
+        SkillShopController openedShop = skillShop;
+        openedShop.Initialize(run.skill_points, hidePurchasedSkills, skillIds =>
+        {
+            openedShop.SetSubmitting(true);
+            SetBusy(true);
+            GameClient.Instance.PurchaseTrainingSkills(skillIds, _ =>
+            {
+                SetBusy(false);
+                ShowMessage("Skill purchase complete.");
+                if (openedShop != null)
+                {
+                    openedShop.Close();
+                }
+            }, error =>
+            {
+                SetBusy(false);
+                ShowMessage($"Skill purchase failed: {error}", isError: true);
+                if (openedShop != null)
+                {
+                    openedShop.SetSubmitting(false);
+                }
+            });
+        }, () =>
+        {
+            if (skillShop == openedShop)
+            {
+                skillShop = null;
+            }
+        });
+
+        GameClient.Instance.FetchTrainingSkills(response =>
+        {
+            if (openedShop != null)
+            {
+                openedShop.LoadSkills(response.skills);
+            }
+        }, error =>
+        {
+            if (openedShop != null)
+            {
+                ShowMessage($"Failed to load skill shop: {error}", isError: true);
+            }
+        });
     }
 
     private void RefreshTrainingState()
@@ -153,6 +237,13 @@ public class TrainingManager : MonoBehaviour
             return;
         }
 
+        TrainingRunData run = GameClient.Instance != null ? GameClient.Instance.CurrentTrainingRun : null;
+        if (run == null || !run.IsCompleted)
+        {
+            ShowMessage("Complete all training rounds before ending training.", isError: true);
+            return;
+        }
+
         SetBusy(true);
         if (GameClient.Instance != null)
         {
@@ -163,13 +254,13 @@ public class TrainingManager : MonoBehaviour
             }, error =>
             {
                 SetBusy(false);
-                GameClient.Instance.UnloadTrainingScene();
+                ShowMessage($"Failed to end training: {error}", isError: true);
             });
         }
         else
         {
             SetBusy(false);
-            UnityEngine.SceneManagement.SceneManager.UnloadSceneAsync(GameClient.TrainingSceneName);
+            ShowMessage("Unable to end training because the game client is unavailable.", isError: true);
         }
     }
 
@@ -321,6 +412,7 @@ public class TrainingManager : MonoBehaviour
 
     public void UpdateUI(TrainingRunData run)
     {
+        UpdateActionButtons(run);
         if (run == null)
         {
             return;
@@ -410,7 +502,9 @@ public class TrainingManager : MonoBehaviour
 
         if (run.IsCompleted)
         {
-            actionPreviewText.text = "<b><color=green>Training completed! Character ready for graduation.</color></b>";
+            pendingAction = ActionType.None;
+            actionPreviewText.text =
+                "<b><color=green>Training completed! Visit the skill shop or end training when ready.</color></b>";
         }
         else if (pendingAction == ActionType.None)
         {
@@ -489,12 +583,21 @@ public class TrainingManager : MonoBehaviour
     private void SetBusy(bool busy)
     {
         isProcessing = busy;
-        powerFacilityButton.interactable = !busy;
-        agilityFacilityButton.interactable = !busy;
-        impactFacilityButton.interactable = !busy;
-        defenseFacilityButton.interactable = !busy;
-        finesseFacilityButton.interactable = !busy;
-        restButton.interactable = !busy;
+        TrainingRunData run = GameClient.Instance != null ? GameClient.Instance.CurrentTrainingRun : null;
+        UpdateActionButtons(run);
+    }
+
+    private void UpdateActionButtons(TrainingRunData run)
+    {
+        bool canTrain = !isProcessing && run != null && !run.IsCompleted;
+        powerFacilityButton.interactable = canTrain;
+        agilityFacilityButton.interactable = canTrain;
+        impactFacilityButton.interactable = canTrain;
+        defenseFacilityButton.interactable = canTrain;
+        finesseFacilityButton.interactable = canTrain;
+        restButton.interactable = canTrain;
+        endTrainingButton.interactable = !isProcessing && run != null && run.IsCompleted;
+        skillShopButton.interactable = !isProcessing && run != null;
     }
 
     private void ShowMessage(string message, bool isError = false)

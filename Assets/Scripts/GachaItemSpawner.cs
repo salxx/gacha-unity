@@ -437,8 +437,40 @@ public class GachaItemSpawner : Singleton<GachaItemSpawner>
     {
         GameObject item = Instantiate(GetPrefab(reward.Tier, reward.IsSupportCard), position, Quaternion.identity);
         item.name = $"Reward_{index + 1}_Tier{reward.Tier}_{reward.id}";
+        if (!reward.IsSupportCard)
+        {
+            SetCharacterRewardImage(item, reward);
+        }
         spawnedItems.Add(item);
         return item;
+    }
+
+    private static void SetCharacterRewardImage(GameObject item, GachaReward reward)
+    {
+        Canvas canvas = item.GetComponentInChildren<Canvas>(true);
+        if (canvas == null)
+        {
+            Debug.LogError($"Character reward prefab for {reward.id} has no child Canvas.", item);
+            return;
+        }
+
+        Image image = canvas.GetComponentInChildren<Image>(true);
+        if (image == null)
+        {
+            Debug.LogError($"Character reward prefab for {reward.id} has no Canvas child Image.", item);
+            return;
+        }
+
+        string resourcePath = $"Images/Characters/{reward.id}";
+        Sprite characterSprite = Resources.Load<Sprite>(resourcePath);
+        if (characterSprite == null)
+        {
+            Debug.LogError($"Character reward sprite not found at Resources/{resourcePath}.png.", item);
+            return;
+        }
+
+        image.sprite = characterSprite;
+        image.preserveAspect = true;
     }
 
     private void ShowRewardInfo(GachaReward reward)
