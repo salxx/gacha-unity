@@ -26,6 +26,7 @@ public class GachaPullButton : MonoBehaviour
     private void Start()
     {
         client = GameClient.Instance;
+        isGachaSceneBusy = false;
 
         pullButton.onClick.AddListener(OnPullButtonClicked);
         client.OnLoginSuccess += RefreshVisibility;
