@@ -148,6 +148,9 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
 
 ### 3.9 Skills
 - Skill definitions live in `data/skills.json` and may declare allowed battle lanes. Skill effects and their mechanics are implemented in code, not modeled in JSON.
+- Skills may also restrict the character's main trait. Incompatible skills remain visible but disabled in the shop; lane restrictions do not prevent purchases.
+- The shop lists trait-incompatible skills after compatible skills and purchased skills last. Purchased skills have a muted green tint; selected skills and the purchase button use green.
+- Unaffordable, trait-compatible skills show their cost in red and retain a muted version of their tier color. Trait-incompatible costs are light gray instead.
 - Every skill version has its own ID; the learned skill list stores those IDs directly.
 - Selective Targeting Basic (`skill_001a`) costs 20 skill points; Advanced (`skill_001b`) costs 25 additional skill points.
 - Selective Targeting has no lane requirement. When the foremost occupied enemy lane has multiple living targets, it has a 25% basic / 40% advanced chance to choose the lowest-health one.
@@ -213,9 +216,9 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
   - `GET /connect?player_id={id}`: Player handshake and profile load.
   - `GET /player-stats?player_id={id}`: Player token balance and pack stats.
   - `GET /gacha-pack?player_id={id}&target={character|support_card}`: Executes 10-pull pack on target banner returning integer tiers (`tier: 1..3`) and debits tokens.
-  - `GET /training/start-or-resume?player_id={id}&character_id={id}&support_card_ids={id1,id2,...}`: Returns an active or completed-but-unfinalized training run, or initializes a new one when none exists.
-  - `GET /training/state?player_id={id}`: Fetches the current active or completed-but-unfinalized run.
-  - `GET /training/skills?player_id={id}`: Returns the skill catalog with each skill's effective `purchase_cost` and `purchased` state for an active or completed-but-unfinalized run. Advanced skills cost the full tier total when acquired directly, or only the additional SP when upgrading an owned Basic skill.
+  - `GET /training/start-or-resume?player_id={id}&character_id={id}&support_card_ids={id1,id2,...}`: Returns an active or completed-but-unfinalized training run, or initializes a new one when none exists. The response includes the character's `training_texts` array.
+  - `GET /training/state?player_id={id}`: Fetches the current active or completed-but-unfinalized run and its `training_texts`. Clicking the trainee displays a locally selected message for three seconds without an additional request.
+  - `GET /training/skills?player_id={id}`: Returns the skill catalog with each skill's effective `purchase_cost`, `purchased` state, `trait_restrictions`, and `trait_compatible` for an active or completed-but-unfinalized run. The shop disables skills when `trait_compatible` is false; the backend also rejects incompatible purchases. Advanced skills cost the full tier total when acquired directly, or only the additional SP when upgrading an owned Basic skill.
   - `POST /training/skills/purchase?player_id={id}` with `{"skill_ids":["skill_001a"]}`: Purchases the selected skill IDs, updates the trainee's assigned skills and both training-run SP balances, and returns the updated run. Purchases remain available until the completed run is finalized. Only one version in each skill family may be selected at once.
   - `GET /training/train?player_id={id}&facility={power|agility|impact|defense|finesse}`: Executes training action on the selected facility.
   - `GET /training/rest?player_id={id}`: Executes rest action to recover energy.

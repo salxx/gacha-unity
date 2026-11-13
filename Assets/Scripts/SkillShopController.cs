@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -18,6 +19,7 @@ public sealed class SkillShopController : MonoBehaviour, IPointerClickHandler
         public TMP_Text SkillText;
         public TMP_Text CostText;
         public Color OriginalColor;
+        public Color OriginalCostColor;
         public bool Selected;
         public bool PrerequisiteSelection;
     }
@@ -26,6 +28,7 @@ public sealed class SkillShopController : MonoBehaviour, IPointerClickHandler
     private TMP_Text spText;
     private TMP_Text acceptButtonText;
     private Button acceptButton;
+    private Color acceptButtonOriginalColor;
     private Transform content;
     private Transform basicTemplate;
     private Transform advancedTemplate;
@@ -58,12 +61,14 @@ public sealed class SkillShopController : MonoBehaviour, IPointerClickHandler
         spText = spTextTransform.GetComponent<TMP_Text>();
         acceptButton = acceptButtonTransform.GetComponent<Button>();
         acceptButtonText = acceptButtonTransform.GetComponentInChildren<TMP_Text>();
-        if (spText == null || acceptButton == null || acceptButtonText == null)
+        if (spText == null || acceptButton == null || acceptButtonText == null
+            || acceptButton.targetGraphic == null)
         {
-            Debug.LogError("SkillShop prefab is missing its SP text, AcceptButton, or purchase button text.");
+            Debug.LogError("SkillShop prefab is missing its SP text, AcceptButton, purchase button text, or target graphic.");
             return;
         }
 
+        acceptButtonOriginalColor = acceptButton.targetGraphic.color;
         acceptButton.onClick.AddListener(AcceptSelection);
         FindTemplates();
         UpdateDisplay();
@@ -93,6 +98,7 @@ public sealed class SkillShopController : MonoBehaviour, IPointerClickHandler
         }
 
         List<SkillDefinitionData> orderedSkills = new List<SkillDefinitionData>();
+        List<SkillDefinitionData> incompatibleSkills = new List<SkillDefinitionData>();
         List<SkillDefinitionData> purchasedSkills = new List<SkillDefinitionData>();
         foreach (SkillDefinitionData skill in skills)
         {
@@ -107,13 +113,31 @@ public sealed class SkillShopController : MonoBehaviour, IPointerClickHandler
                 Debug.LogError("SkillShop received a skill with invalid identifying or cost data.");
                 continue;
             }
+            if (skill.trait_restrictions == null
+                || (!skill.trait_compatible && skill.trait_restrictions.Length == 0))
+            {
+                Debug.LogError($"SkillShop received invalid trait compatibility for '{skill.id}'.");
+                continue;
+            }
             if (skill.purchased && hidePurchasedSkills)
             {
                 continue;
             }
 
-            (skill.purchased ? purchasedSkills : orderedSkills).Add(skill);
+            if (skill.purchased)
+            {
+                purchasedSkills.Add(skill);
+            }
+            else if (!skill.trait_compatible)
+            {
+                incompatibleSkills.Add(skill);
+            }
+            else
+            {
+                orderedSkills.Add(skill);
+            }
         }
+        orderedSkills.AddRange(incompatibleSkills);
         orderedSkills.AddRange(purchasedSkills);
 
         foreach (SkillDefinitionData skill in orderedSkills)
@@ -241,7 +265,8 @@ public sealed class SkillShopController : MonoBehaviour, IPointerClickHandler
             Background = background,
             SkillText = skillText,
             CostText = costText,
-            OriginalColor = background.color
+            OriginalColor = background.color,
+            OriginalCostColor = costText.color
         };
         skillText.text = $"<b>{skill.name}</b>\n\n{skill.description}";
         costText.text = skill.purchase_cost.ToString();
@@ -252,7 +277,7 @@ public sealed class SkillShopController : MonoBehaviour, IPointerClickHandler
 
     private void ToggleSelection(SkillEntry entry)
     {
-        if (isSubmitting || entry.Data.purchased)
+        if (isSubmitting || entry.Data.purchased || !entry.Data.trait_compatible)
         {
             return;
         }
@@ -298,7 +323,7 @@ public sealed class SkillShopController : MonoBehaviour, IPointerClickHandler
             if (IsAdvancedSkill(entry))
             {
                 SkillEntry basic = FindBasicSkill(entry.Data.family_id);
-                if (basic != null && !basic.Data.purchased)
+                if (basic != null && !basic.Data.purchased && basic.Data.trait_compatible)
                 {
                     basic.Selected = true;
                     basic.PrerequisiteSelection = true;
@@ -332,6 +357,9 @@ public sealed class SkillShopController : MonoBehaviour, IPointerClickHandler
         if (acceptButton != null)
         {
             acceptButton.interactable = !isSubmitting && selectedCost > 0;
+            acceptButton.targetGraphic.color = selectedCount > 0
+                ? new Color(0.42f, 0.78f, 0.35f, acceptButtonOriginalColor.a)
+                : acceptButtonOriginalColor;
         }
         if (acceptButtonText != null)
         {
@@ -351,27 +379,68 @@ public sealed class SkillShopController : MonoBehaviour, IPointerClickHandler
             }
 
             bool affordable = otherFamilyCost + entry.Data.purchase_cost <= startingSkillPoints;
-            entry.Button.interactable = !isSubmitting && !entry.Data.purchased
+            entry.Button.interactable = !isSubmitting && !entry.Data.purchased && entry.Data.trait_compatible
                                         && (entry.Selected || affordable);
             entry.CostText.text = entry.Data.purchased
                 ? string.Empty
                 : entry.Data.purchase_cost.ToString();
+            entry.CostText.color = !entry.Data.purchased && !entry.Data.trait_compatible
+                ? new Color(0.45f, 0.45f, 0.45f, entry.OriginalCostColor.a)
+                : !entry.Data.purchased && !entry.Selected && !affordable
+                    ? new Color(0.75f, 0.1f, 0.1f, entry.OriginalCostColor.a)
+                    : entry.OriginalCostColor;
             if (entry.Data.purchased)
             {
-                entry.SkillText.text = $"<b>{entry.Data.name}</b>\n\n{entry.Data.description}\n\n<color=#777777>[Purchased]</color>";
-                entry.Background.color = new Color(0.7f, 0.7f, 0.7f, entry.OriginalColor.a);
+                entry.SkillText.text = $"<b>{entry.Data.name}</b>{ScalingIcons(entry.Data)} <color=#4E704A>[Purchased]</color>\n{DescriptionWithLanes(entry.Data)}";
+                entry.Background.color = new Color(0.65f, 0.78f, 0.63f, entry.OriginalColor.a);
+            }
+            else if (!entry.Data.trait_compatible)
+            {
+                string restrictions = string.Join(", ", entry.Data.trait_restrictions);
+                entry.SkillText.text = $"<b>{entry.Data.name}</b>{ScalingIcons(entry.Data)} <color=#777777>[Requires main trait: {restrictions}]</color>\n{DescriptionWithLanes(entry.Data)}";
+                entry.Background.color = new Color(0.65f, 0.65f, 0.65f, entry.OriginalColor.a);
             }
             else
             {
-                string selectionLabel = entry.Selected ? "\n\n<color=#2D7A25>[Selected]</color>" : string.Empty;
-                entry.SkillText.text = $"<b>{entry.Data.name}</b>\n\n{entry.Data.description}{selectionLabel}";
+                string selectionLabel = entry.Selected ? " <color=#2D7A25>[Selected]</color>" : string.Empty;
+                entry.SkillText.text = $"<b>{entry.Data.name}</b>{ScalingIcons(entry.Data)}{selectionLabel}\n{DescriptionWithLanes(entry.Data)}";
                 entry.Background.color = entry.Selected
-                    ? new Color(0.58f, 0.88f, 0.52f, entry.OriginalColor.a)
+                    ? SelectedColor(entry.OriginalColor.a)
                     : affordable
                         ? entry.OriginalColor
-                        : new Color(0.65f, 0.65f, 0.65f, entry.OriginalColor.a);
+                        : Color.Lerp(entry.OriginalColor, new Color(0.65f, 0.65f, 0.65f, entry.OriginalColor.a), 0.6f);
             }
         }
+    }
+
+    private static string ScalingIcons(SkillDefinitionData skill)
+    {
+        if (skill.scaling_traits == null || skill.scaling_traits.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        StringBuilder icons = new StringBuilder();
+        foreach (string trait in skill.scaling_traits)
+        {
+            icons.Append($" <sprite=\"{trait}\" name=\"{trait}\">");
+        }
+        return icons.ToString();
+    }
+
+    private static string DescriptionWithLanes(SkillDefinitionData skill)
+    {
+        if (skill.lane_restrictions == null || skill.lane_restrictions.Length == 0)
+        {
+            return skill.description;
+        }
+
+        List<string> lanes = new List<string>();
+        foreach (string lane in skill.lane_restrictions)
+        {
+            lanes.Add(char.ToUpperInvariant(lane[0]) + lane.Substring(1));
+        }
+        return $"{skill.description}\n<b>({string.Join("/", lanes)} only)</b>";
     }
 
     private void AcceptSelection()
@@ -423,6 +492,8 @@ public sealed class SkillShopController : MonoBehaviour, IPointerClickHandler
 
     private static bool IsChargeableSelection(SkillEntry entry) =>
         entry.Selected && !entry.PrerequisiteSelection;
+
+    private static Color SelectedColor(float alpha) => new Color(0.58f, 0.88f, 0.52f, alpha);
 
     private static bool IsBasicSkill(SkillEntry entry) =>
         entry.Data.id.EndsWith("a", StringComparison.OrdinalIgnoreCase);

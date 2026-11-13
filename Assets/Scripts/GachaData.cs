@@ -98,6 +98,9 @@ public class SkillDefinitionData
     public string family_id;
     public string name;
     public string[] lane_restrictions = Array.Empty<string>();
+    public string[] trait_restrictions = Array.Empty<string>();
+    public string[] scaling_traits = Array.Empty<string>();
+    public bool trait_compatible;
     public string description;
     public int skill_point_cost;
     public int purchase_cost;
@@ -291,6 +294,7 @@ public class TrainingResponse
     public bool success;
     public TrainingRunData run;
     public TrainingActionResult action_result;
+    public string[] training_texts;
 }
 
 [Serializable]

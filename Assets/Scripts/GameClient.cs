@@ -35,6 +35,7 @@ public class GameClient : Singleton<GameClient>
     public PlayerData CurrentPlayer { get; private set; }
     public string BackendUrl => backendUrl;
     public TrainingRunData CurrentTrainingRun { get; private set; }
+    public string[] TrainingTexts { get; private set; } = Array.Empty<string>();
     public bool IsLoggedIn => CurrentPlayer != null;
     public bool CanAffordPack => IsLoggedIn && CurrentPlayer.Tokens >= PackCost;
 
@@ -119,6 +120,7 @@ public class GameClient : Singleton<GameClient>
             }
 
             CurrentPlayer = new PlayerData(response.player_id ?? normalizedPlayerId, response.stats);
+            TrainingTexts = Array.Empty<string>();
             if (trainingButton != null)
             {
                 trainingButton.gameObject.SetActive(true);
@@ -489,7 +491,7 @@ public class GameClient : Singleton<GameClient>
         StartCoroutine(Get(query, json =>
         {
             TrainingResponse response = JsonUtility.FromJson<TrainingResponse>(json);
-            CurrentTrainingRun = response.run;
+            SetTrainingSession(response);
             UpdateTrainingButtonLabel();
             OnTrainingRunUpdated?.Invoke(CurrentTrainingRun);
             EnsureTrainingRunPresetSaved(CurrentTrainingRun);
@@ -497,11 +499,13 @@ public class GameClient : Singleton<GameClient>
         }, error =>
         {
             CurrentTrainingRun = null;
+            TrainingTexts = Array.Empty<string>();
             UpdateTrainingButtonLabel();
             onError?.Invoke(error);
         }, () =>
         {
             CurrentTrainingRun = null;
+            TrainingTexts = Array.Empty<string>();
             UpdateTrainingButtonLabel();
             OnTrainingRunUpdated?.Invoke(null);
             onSuccess?.Invoke(null);
@@ -552,7 +556,7 @@ public class GameClient : Singleton<GameClient>
         StartCoroutine(Get(query, json =>
         {
             TrainingResponse response = JsonUtility.FromJson<TrainingResponse>(json);
-            CurrentTrainingRun = response.run;
+            SetTrainingSession(response);
             UpdateTrainingButtonLabel();
             OnTrainingRunUpdated?.Invoke(CurrentTrainingRun);
             onSuccess?.Invoke(CurrentTrainingRun);
@@ -578,6 +582,18 @@ public class GameClient : Singleton<GameClient>
         return true;
     }
 
+    private void SetTrainingSession(TrainingResponse response)
+    {
+        if (response == null || !response.success || response.run == null || response.training_texts == null
+            || Array.Exists(response.training_texts, string.IsNullOrWhiteSpace))
+        {
+            throw new FormatException("response did not contain the training session and its texts");
+        }
+
+        CurrentTrainingRun = response.run;
+        TrainingTexts = response.training_texts;
+    }
+
     public void EndAndResetTraining(Action onSuccess = null, Action<string> onError = null)
     {
         if (!IsLoggedIn) return;
@@ -586,6 +602,7 @@ public class GameClient : Singleton<GameClient>
         StartCoroutine(Get(query, json =>
         {
             CurrentTrainingRun = null;
+            TrainingTexts = Array.Empty<string>();
             UpdateTrainingButtonLabel();
             OnTrainingRunUpdated?.Invoke(null);
             onSuccess?.Invoke();

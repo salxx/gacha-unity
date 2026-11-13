@@ -69,10 +69,17 @@ public class TrainingManager : MonoBehaviour
     private bool isProcessing = false;
     private SkillShopController skillShop;
     private EventTrigger backgroundEventTrigger;
+    private EventTrigger traineeEventTrigger;
+    private EventTrigger.Entry traineeClickEntry;
+    private TMP_Text traineeDialogueText;
+    private string dialogueCharacterId;
+    private int lastDialogueIndex = -1;
+    private float dialogueExpiresAt;
 
     private void Start()
     {
         InitializeBackgroundReset();
+        InitializeTraineeDialogue();
         powerFacilityButton.onClick.AddListener(() => OnActionButtonClicked(ActionType.TrainPower));
         agilityFacilityButton.onClick.AddListener(() => OnActionButtonClicked(ActionType.TrainAgility));
         impactFacilityButton.onClick.AddListener(() => OnActionButtonClicked(ActionType.TrainImpact));
@@ -103,6 +110,14 @@ public class TrainingManager : MonoBehaviour
     private void OnDestroy()
     {
         skillShopButton.onClick.RemoveListener(OnSkillShopButtonClicked);
+        if (traineeEventTrigger != null && traineeClickEntry != null)
+        {
+            traineeEventTrigger.triggers.Remove(traineeClickEntry);
+        }
+        if (traineeDialogueText != null)
+        {
+            Destroy(traineeDialogueText.gameObject);
+        }
         if (backgroundEventTrigger != null)
         {
             foreach (EventTrigger.Entry entry in backgroundEventTrigger.triggers)
@@ -263,6 +278,77 @@ public class TrainingManager : MonoBehaviour
         EventTrigger.Entry entry = new EventTrigger.Entry { eventID = EventTriggerType.PointerClick };
         entry.callback.AddListener(HandleBackgroundPointerClick);
         backgroundEventTrigger.triggers.Add(entry);
+    }
+
+    private void InitializeTraineeDialogue()
+    {
+        traineeDialogueText = Instantiate(traineeNameText, traineeImage.transform, false);
+        traineeDialogueText.name = "TraineeDialogue";
+        traineeDialogueText.text = string.Empty;
+        traineeDialogueText.raycastTarget = false;
+        traineeDialogueText.richText = false;
+        traineeDialogueText.alignment = TextAlignmentOptions.TopLeft;
+        traineeDialogueText.fontSize = 24;
+        RectTransform rect = traineeDialogueText.rectTransform;
+        bool mirrored = traineeImage.rectTransform.localScale.x < 0;
+        rect.anchorMin = rect.anchorMax = new Vector2(mirrored ? 0 : 1, 1);
+        rect.pivot = new Vector2(0, 1);
+        rect.anchoredPosition = new Vector2(mirrored ? -12 : 12, -20);
+        rect.sizeDelta = new Vector2(300, 120);
+        rect.localScale = new Vector3(mirrored ? -1 : 1, 1, 1);
+
+        traineeImage.raycastTarget = true;
+        traineeEventTrigger = traineeImage.GetComponent<EventTrigger>();
+        if (traineeEventTrigger == null)
+        {
+            traineeEventTrigger = traineeImage.gameObject.AddComponent<EventTrigger>();
+        }
+        traineeClickEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerClick };
+        traineeClickEntry.callback.AddListener(HandleTraineeClick);
+        traineeEventTrigger.triggers.Add(traineeClickEntry);
+    }
+
+    private void HandleTraineeClick(BaseEventData eventData)
+    {
+        if (!(eventData is PointerEventData pointer) || pointer.button != PointerEventData.InputButton.Left)
+        {
+            return;
+        }
+        if (GameClient.Instance == null || GameClient.Instance.CurrentTrainingRun == null)
+        {
+            return;
+        }
+        string[] texts = GameClient.Instance.TrainingTexts;
+        if (texts.Length == 0)
+        {
+            return;
+        }
+
+        int index;
+        if (texts.Length > 1 && lastDialogueIndex >= 0 && lastDialogueIndex < texts.Length)
+        {
+            index = UnityEngine.Random.Range(0, texts.Length - 1);
+            if (index >= lastDialogueIndex)
+            {
+                index++;
+            }
+        }
+        else
+        {
+            index = UnityEngine.Random.Range(0, texts.Length);
+        }
+        lastDialogueIndex = index;
+        traineeDialogueText.text = texts[index];
+        dialogueExpiresAt = Time.unscaledTime + 3f;
+    }
+
+    private void Update()
+    {
+        if (traineeDialogueText != null && traineeDialogueText.text.Length > 0
+            && Time.unscaledTime >= dialogueExpiresAt)
+        {
+            traineeDialogueText.text = string.Empty;
+        }
     }
 
     private void HandleBackgroundPointerClick(BaseEventData eventData)
@@ -461,6 +547,13 @@ public class TrainingManager : MonoBehaviour
     public void UpdateUI(TrainingRunData run)
     {
         UpdateActionButtons(run);
+        string characterId = run?.trainee?.id;
+        if (dialogueCharacterId != characterId)
+        {
+            dialogueCharacterId = characterId;
+            lastDialogueIndex = -1;
+            traineeDialogueText.text = string.Empty;
+        }
         if (run == null)
         {
             return;
