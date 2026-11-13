@@ -621,25 +621,7 @@ public class TrainingManager : MonoBehaviour
         UpdateFacilityLevelTextAndSupportCardPreview(finesseLevelText, "FIN", run.facility_levels?.finesse ?? 1,
             run.facility_previews.finesse, run.support_cards);
 
-        // Support cards display
-        if (supportCardsText != null && run.support_cards != null)
-        {
-            string cardsSummary = "<b>Support Team:</b>\n";
-            foreach (var card in run.support_cards)
-            {
-                string loc = FindCardLocation(card.id, run.facility_previews);
-                bool isRainbow = loc.Equals(card.facility, StringComparison.OrdinalIgnoreCase) &&
-                                 card.IsRainbowEligible;
-                string rainbowTag = isRainbow
-                    ? " <color=#00FFFF>[Rainbow Active!]</color>"
-                    : (card.IsRainbowEligible ? " [Rainbow Ready]" : "");
-                string facility = card.facility?.Trim().ToLowerInvariant();
-                cardsSummary +=
-                    $"<sprite=\"{facility}\" name=\"{facility}\"> [{card.facility?.ToUpperInvariant()} | {Tiers.ShortName(card.tier)}]\n  {card.title}\n  Bond: {card.bond}% | At: {loc.ToUpperInvariant()}{rainbowTag}\n\n";
-            }
-
-            supportCardsText.text = cardsSummary.TrimEnd();
-        }
+        RefreshSupportCardsText(run);
 
         if (run.IsCompleted)
         {
@@ -728,8 +710,40 @@ public class TrainingManager : MonoBehaviour
         UpdateActionButtons(run);
     }
 
+    private void RefreshSupportCardsText(TrainingRunData run)
+    {
+        if (supportCardsText == null || run == null || run.support_cards == null)
+        {
+            return;
+        }
+
+        string selectedFacility = ActionToFacilityName(pendingAction);
+        string cardsSummary = "<b>Support Team:</b>\n";
+        foreach (var card in run.support_cards)
+        {
+            string loc = FindCardLocation(card.id, run.facility_previews);
+            if (selectedFacility.Length > 0
+                && !loc.Equals(selectedFacility, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            bool isRainbow = loc.Equals(card.facility, StringComparison.OrdinalIgnoreCase) &&
+                             card.IsRainbowEligible;
+            string rainbowTag = isRainbow
+                ? " <color=#00FFFF>[Rainbow Active!]</color>"
+                : (card.IsRainbowEligible ? " [Rainbow Ready]" : "");
+            string facility = card.facility?.Trim().ToLowerInvariant();
+            cardsSummary +=
+                $"<sprite=\"{facility}\" name=\"{facility}\"> [{card.facility?.ToUpperInvariant()} | {Tiers.ShortName(card.tier)}]\n  {card.title}\n  Bond: {card.bond}% | At: {loc.ToUpperInvariant()}{rainbowTag}\n\n";
+        }
+
+        supportCardsText.text = cardsSummary.TrimEnd();
+    }
+
     private void UpdateActionButtons(TrainingRunData run)
     {
+        RefreshSupportCardsText(run);
         bool canTrain = !isProcessing && run != null && !run.IsCompleted;
         UpdateActionButton(powerFacilityButton, ActionType.TrainPower, canTrain);
         UpdateActionButton(agilityFacilityButton, ActionType.TrainAgility, canTrain);
