@@ -156,7 +156,7 @@ public class GameClient : Singleton<GameClient>
                 trainingButton.interactable = true;
             }
 
-            if (run != null && run.status == "active")
+            if (run != null && (run.status == "active" || run.status == "completed"))
             {
                 LoadTrainingSceneAdditive();
             }

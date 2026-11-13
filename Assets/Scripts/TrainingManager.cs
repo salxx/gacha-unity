@@ -1,6 +1,7 @@
 ﻿using System;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
@@ -31,6 +32,7 @@ public class TrainingManager : MonoBehaviour
     [SerializeField] private Button restButton;
     [SerializeField] private Button endTrainingButton;
     [SerializeField] private Button suspendTrainingButton;
+    [SerializeField] private Image backgroundImage;
 
     [Header("Skill Shop")]
     [SerializeField] private Button skillShopButton;
@@ -66,9 +68,11 @@ public class TrainingManager : MonoBehaviour
     private ActionType pendingAction = ActionType.None;
     private bool isProcessing = false;
     private SkillShopController skillShop;
+    private EventTrigger backgroundEventTrigger;
 
     private void Start()
     {
+        InitializeBackgroundReset();
         powerFacilityButton.onClick.AddListener(() => OnActionButtonClicked(ActionType.TrainPower));
         agilityFacilityButton.onClick.AddListener(() => OnActionButtonClicked(ActionType.TrainAgility));
         impactFacilityButton.onClick.AddListener(() => OnActionButtonClicked(ActionType.TrainImpact));
@@ -99,6 +103,17 @@ public class TrainingManager : MonoBehaviour
     private void OnDestroy()
     {
         skillShopButton.onClick.RemoveListener(OnSkillShopButtonClicked);
+        if (backgroundEventTrigger != null)
+        {
+            foreach (EventTrigger.Entry entry in backgroundEventTrigger.triggers)
+            {
+                if (entry.eventID == EventTriggerType.PointerClick)
+                {
+                    entry.callback.RemoveListener(HandleBackgroundPointerClick);
+                }
+            }
+        }
+
         if (GameClient.Instance != null)
         {
             GameClient.Instance.OnTrainingRunUpdated -= OnTrainingRunUpdated;
@@ -220,14 +235,47 @@ public class TrainingManager : MonoBehaviour
         // Second click on the SAME button -> execute action
         if (pendingAction == clickedAction)
         {
-            ExecuteAction(clickedAction);
             pendingAction = ActionType.None;
+            ExecuteAction(clickedAction);
         }
         else
         {
             pendingAction = clickedAction;
             DisplayActionPreview(clickedAction, run);
+            UpdateActionButtons(run);
         }
+    }
+
+    private void InitializeBackgroundReset()
+    {
+        backgroundImage.raycastTarget = true;
+        if (backgroundImage.GetComponent<GraphicRaycaster>() == null)
+        {
+            backgroundImage.gameObject.AddComponent<GraphicRaycaster>();
+        }
+
+        backgroundEventTrigger = backgroundImage.GetComponent<EventTrigger>();
+        if (backgroundEventTrigger == null)
+        {
+            backgroundEventTrigger = backgroundImage.gameObject.AddComponent<EventTrigger>();
+        }
+
+        EventTrigger.Entry entry = new EventTrigger.Entry { eventID = EventTriggerType.PointerClick };
+        entry.callback.AddListener(HandleBackgroundPointerClick);
+        backgroundEventTrigger.triggers.Add(entry);
+    }
+
+    private void HandleBackgroundPointerClick(BaseEventData eventData)
+    {
+        if (isProcessing || pendingAction == ActionType.None || !(eventData is PointerEventData))
+        {
+            return;
+        }
+
+        pendingAction = ActionType.None;
+        actionPreviewText.text = "Select a facility or rest to preview stat gains.";
+        TrainingRunData run = GameClient.Instance != null ? GameClient.Instance.CurrentTrainingRun : null;
+        UpdateActionButtons(run);
     }
 
     private void OnEndTrainingButtonClicked()
@@ -238,9 +286,9 @@ public class TrainingManager : MonoBehaviour
         }
 
         TrainingRunData run = GameClient.Instance != null ? GameClient.Instance.CurrentTrainingRun : null;
-        if (run == null || !run.IsCompleted)
+        if (run == null)
         {
-            ShowMessage("Complete all training rounds before ending training.", isError: true);
+            ShowMessage("A training run is required to end training.", isError: true);
             return;
         }
 
@@ -590,14 +638,30 @@ public class TrainingManager : MonoBehaviour
     private void UpdateActionButtons(TrainingRunData run)
     {
         bool canTrain = !isProcessing && run != null && !run.IsCompleted;
-        powerFacilityButton.interactable = canTrain;
-        agilityFacilityButton.interactable = canTrain;
-        impactFacilityButton.interactable = canTrain;
-        defenseFacilityButton.interactable = canTrain;
-        finesseFacilityButton.interactable = canTrain;
-        restButton.interactable = canTrain;
-        endTrainingButton.interactable = !isProcessing && run != null && run.IsCompleted;
+        UpdateActionButton(powerFacilityButton, ActionType.TrainPower, canTrain);
+        UpdateActionButton(agilityFacilityButton, ActionType.TrainAgility, canTrain);
+        UpdateActionButton(impactFacilityButton, ActionType.TrainImpact, canTrain);
+        UpdateActionButton(defenseFacilityButton, ActionType.TrainDefense, canTrain);
+        UpdateActionButton(finesseFacilityButton, ActionType.TrainFinesse, canTrain);
+        UpdateActionButton(restButton, ActionType.Rest, canTrain && run.energy < run.max_energy);
+        endTrainingButton.interactable = !isProcessing && run != null;
         skillShopButton.interactable = !isProcessing && run != null;
+    }
+
+    private void UpdateActionButton(Button button, ActionType action, bool canTrain)
+    {
+        button.interactable = canTrain;
+        CanvasGroup canvasGroup = button.GetComponent<CanvasGroup>();
+        if (canvasGroup == null)
+        {
+            canvasGroup = button.gameObject.AddComponent<CanvasGroup>();
+        }
+
+        canvasGroup.alpha = button.interactable
+                            && pendingAction != ActionType.None
+                            && pendingAction != action
+            ? 0.7f
+            : 1f;
     }
 
     private void ShowMessage(string message, bool isError = false)

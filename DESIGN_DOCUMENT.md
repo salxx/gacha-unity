@@ -149,9 +149,10 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
 ### 3.9 Skills
 - Skill definitions live in `data/skills.json` and may declare allowed battle lanes. Skill effects and their mechanics are implemented in code, not modeled in JSON.
 - Every skill version has its own ID; the learned skill list stores those IDs directly.
-- Selective Targeting Basic (`skill_001a`) costs 25 skill points; Advanced (`skill_001b`) costs 25 additional skill points.
+- Selective Targeting Basic (`skill_001a`) costs 20 skill points; Advanced (`skill_001b`) costs 25 additional skill points.
 - Selective Targeting has no lane requirement. When the foremost occupied enemy lane has multiple living targets, it has a 25% basic / 40% advanced chance to choose the lowest-health one.
-- For the current test battle, every character and enemy is granted the basic version. Only successful triggers are included in replay logs.
+- Early Morning Motivation (`skill_002a`) adds 5% damage until the first opposing combatant is defeated. Vengeance (`skill_003a`) adds 15% when more allies are defeated than alive. Active damage bonuses are added together and applied to the final calculated damage.
+- Battles use each character's learned skill IDs and each enemy profile's configured skill IDs; characters with no learned skills receive no defaults. Successful triggers are included in replay logs.
 
 ---
 
@@ -199,8 +200,8 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
 - Enemy formation supports up to three combatants each in Front, Mid and Back; current training dummies start in Mid.
 - Enemies are loaded from `data/enemy.json`; tier is an integer mapped to Grunt (1), Elite (2), and Boss (3). Current training dummies are Grunts and carry Basic Selective Targeting.
 - Gear `gear_001` lets its bearer assassinate one Grunt below half health once per battle; it may select a Grunt from any lane.
-- Attacks prioritize the foremost lane with living opponents, then choose a living target uniformly at random within that lane. Skill-driven target changes and priorities are future extensions.
-- Automated combat resolution: Each combatant attacks independently based on agility; unlocked skills and conditions will extend this system later.
+- Attacks prioritize the foremost lane with living opponents, then choose a living target uniformly at random within that lane. Selective Targeting may choose the lowest-health target in a multi-target lane.
+- Automated combat resolution: Each combatant attacks independently based on agility; learned skills can modify target selection or damage, and activated skills are included in replay actions.
 
 ---
 
@@ -218,7 +219,7 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
   - `POST /training/skills/purchase?player_id={id}` with `{"skill_ids":["skill_001a"]}`: Purchases the selected skill IDs, updates the trainee's assigned skills and both training-run SP balances, and returns the updated run. Purchases remain available until the completed run is finalized. Only one version in each skill family may be selected at once.
   - `GET /training/train?player_id={id}&facility={power|agility|impact|defense|finesse}`: Executes training action on the selected facility.
   - `GET /training/rest?player_id={id}`: Executes rest action to recover energy.
-  - `POST /training/end?player_id={id}`: Finalizes a completed run as a finished trainee and removes the pending run. Training and rest actions do not finalize a run; suspend or closing the game leaves it resumable until this endpoint succeeds.
+  - `POST /training/end?player_id={id}`: Cancels an active run without saving a finished trainee, or finalizes a completed run as a finished trainee; either action removes the pending run. Training and rest actions do not finalize a run; suspend or closing the game leaves it resumable until this endpoint succeeds.
   - `GET /battle?player_id={id}`: Simulates the battle immediately and returns positioned combatants with timestamped replay actions.
 - **Data Stores**:
   - `data/characters.json`: Character catalog definitions with integer `tier` (`1`, `2`, `3`).

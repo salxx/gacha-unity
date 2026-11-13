@@ -4085,6 +4085,7 @@ MonoBehaviour:
   endTrainingButton: {fileID: 1621960022}
   suspendTrainingButton: {fileID: 1199047929}
   skillShopButton: {fileID: 52197025}
+  backgroundImage: {fileID: 1017882525}
   hidePurchasedSkills: 0
   traineeImage: {fileID: 1929814102}
   cardEmptyPreviewImage: {fileID: 21300000, guid: 559a45018eb0ab340bb07a8dbaf192f6, type: 3}

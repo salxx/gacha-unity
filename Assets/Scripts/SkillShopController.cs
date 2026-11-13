@@ -24,6 +24,7 @@ public sealed class SkillShopController : MonoBehaviour, IPointerClickHandler
 
     private readonly List<SkillEntry> entries = new List<SkillEntry>();
     private TMP_Text spText;
+    private TMP_Text acceptButtonText;
     private Button acceptButton;
     private Transform content;
     private Transform basicTemplate;
@@ -56,9 +57,10 @@ public sealed class SkillShopController : MonoBehaviour, IPointerClickHandler
 
         spText = spTextTransform.GetComponent<TMP_Text>();
         acceptButton = acceptButtonTransform.GetComponent<Button>();
-        if (spText == null || acceptButton == null)
+        acceptButtonText = acceptButtonTransform.GetComponentInChildren<TMP_Text>();
+        if (spText == null || acceptButton == null || acceptButtonText == null)
         {
-            Debug.LogError("SkillShop prefab is missing its SP text or AcceptButton component.");
+            Debug.LogError("SkillShop prefab is missing its SP text, AcceptButton, or purchase button text.");
             return;
         }
 
@@ -310,8 +312,13 @@ public sealed class SkillShopController : MonoBehaviour, IPointerClickHandler
     private void UpdateDisplay()
     {
         int selectedCost = 0;
+        int selectedCount = 0;
         foreach (SkillEntry entry in entries)
         {
+            if (entry.Selected && !entry.Data.purchased)
+            {
+                selectedCount++;
+            }
             if (IsChargeableSelection(entry))
             {
                 selectedCost += entry.Data.purchase_cost;
@@ -325,6 +332,10 @@ public sealed class SkillShopController : MonoBehaviour, IPointerClickHandler
         if (acceptButton != null)
         {
             acceptButton.interactable = !isSubmitting && selectedCost > 0;
+        }
+        if (acceptButtonText != null)
+        {
+            acceptButtonText.text = selectedCount > 0 ? $"Purchase ({selectedCount})" : "Purchase";
         }
 
         foreach (SkillEntry entry in entries)
