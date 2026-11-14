@@ -30,6 +30,7 @@ public class GameClient : Singleton<GameClient>
     private Button characterSelectorBackgroundButton;
     private string selectedCharacterId;
     private int characterSelectionGeneration;
+    private int cardSelectionGeneration;
     private bool isLoadingBattle;
 
     public PlayerData CurrentPlayer { get; private set; }
@@ -286,13 +287,23 @@ public class GameClient : Singleton<GameClient>
         }
 
         supportCardTeamSelector.gameObject.SetActive(true);
+        supportCardTeamSelector.SetTrainee(selectedCharacterId);
+        int generation = ++cardSelectionGeneration;
+        int selectionGeneration = supportCardTeamSelector.SelectionGeneration;
         FetchSupportCardPreset(cardIds =>
         {
-            if (supportCardTeamSelector != null)
+            if (generation == cardSelectionGeneration && supportCardTeamSelector != null
+                && selectionGeneration == supportCardTeamSelector.SelectionGeneration)
             {
                 supportCardTeamSelector.LoadPreset(cardIds, error => ShowStatus(error));
             }
-        }, error => ShowStatus($"Failed to load saved support card preset: {error}"));
+        }, error =>
+        {
+            if (generation == cardSelectionGeneration)
+            {
+                ShowStatus($"Failed to load saved support card preset: {error}");
+            }
+        });
     }
 
     private void SubscribeToCardSelector()
@@ -316,6 +327,7 @@ public class GameClient : Singleton<GameClient>
 
     private void CancelTrainingSelection()
     {
+        cardSelectionGeneration++;
         selectedCharacterId = null;
         isStartingTraining = false;
     }
@@ -533,6 +545,22 @@ public class GameClient : Singleton<GameClient>
         {
             onError?.Invoke("Select exactly 6 cards with unique IDs.");
             return;
+        }
+        if (!string.IsNullOrWhiteSpace(characterId))
+        {
+            foreach (SupportCardData card in supportCards)
+            {
+                if (string.IsNullOrWhiteSpace(card.CharacterId))
+                {
+                    onError?.Invoke($"Support card '{card.id}' has no character ID.");
+                    return;
+                }
+                if (string.Equals(card.CharacterId, characterId, StringComparison.Ordinal))
+                {
+                    onError?.Invoke($"Support card '{card.id}' belongs to the selected training character.");
+                    return;
+                }
+            }
         }
 
         string supportCardIds = string.Join(",", Array.ConvertAll(supportCards, card => card.id));

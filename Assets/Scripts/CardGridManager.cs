@@ -11,6 +11,7 @@ public class CardGridManager : MonoBehaviour
     [SerializeField] private Transform contentPanel; // The GameObject with the GridLayoutGroup
 
     private Action<SupportCardData> onGridCompleteCallback;
+    private int loadGeneration;
 
     /// <summary>
     /// Call this method to open and initialize the grid with your data list.
@@ -18,8 +19,10 @@ public class CardGridManager : MonoBehaviour
     public void FetchAndInitializeGrid(
         Action<SupportCardData> onItemSelected,
         IEnumerable<string> unavailableCardIds,
+        string traineeCharacterId,
         Action<string> onError = null)
     {
+        int generation = ++loadGeneration;
         GameClient client = GameClient.Instance;
         if (client == null)
         {
@@ -29,14 +32,29 @@ public class CardGridManager : MonoBehaviour
 
         var unavailableIds = new HashSet<string>(unavailableCardIds ?? Array.Empty<string>(), StringComparer.Ordinal);
         client.FetchSupportCards(
-            cards => InitializeGrid(new List<SupportCardData>(cards), onItemSelected, unavailableIds),
-            onError);
+            cards =>
+            {
+                if (generation == loadGeneration)
+                {
+                    InitializeGrid(new List<SupportCardData>(cards), onItemSelected, unavailableIds, traineeCharacterId);
+                }
+            },
+            error =>
+            {
+                if (generation == loadGeneration)
+                {
+                    onError?.Invoke(error);
+                }
+            });
     }
+
+    public void CancelPendingLoad() => loadGeneration++;
 
     public void InitializeGrid(
         List<SupportCardData> itemList,
         Action<SupportCardData> onItemSelected,
-        ISet<string> unavailableCardIds = null)
+        ISet<string> unavailableCardIds = null,
+        string traineeCharacterId = null)
     {
         onGridCompleteCallback = onItemSelected;
 
@@ -59,8 +77,14 @@ public class CardGridManager : MonoBehaviour
             if (gridItemScript != null)
             {
                 gridItemScript.Setup(item, OnItemClicked);
+                if (string.IsNullOrWhiteSpace(item.CharacterId))
+                {
+                    Debug.LogError($"Support card {item.id} has no character ID.", this);
+                }
                 gridItemScript.SetInteractable(
-                    unavailableCardIds == null || !unavailableCardIds.Contains(item.id));
+                    !string.IsNullOrWhiteSpace(item.CharacterId)
+                    && (unavailableCardIds == null || !unavailableCardIds.Contains(item.id))
+                    && !string.Equals(item.CharacterId, traineeCharacterId, StringComparison.Ordinal));
             }
         }
     }

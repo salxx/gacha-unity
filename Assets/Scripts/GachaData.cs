@@ -189,6 +189,7 @@ public class SupportCardData
     public int bond = 20; // 0 to 100%
     public string[] skills = Array.Empty<string>();
 
+    public string CharacterId => !string.IsNullOrWhiteSpace(character_id) ? character_id : characterId;
     public int MaxLevel => 20 + Tiers.Clamp(tier) * 10; // 30 / 40 / 50
     public bool IsRainbowEligible => bond >= 80;
 }
@@ -306,6 +307,15 @@ public class EventEffectData
     public int amount;
     public string skill_id;
     public string skill_name;
+    public string decision;
+}
+
+[Serializable]
+public class EventAnimationData
+{
+    public int before_line;
+    public string actor;
+    public string animation;
 }
 
 [Serializable]
@@ -315,6 +325,8 @@ public class TrainingEventData
     public string name;
     public string[] text = Array.Empty<string>();
     public EventChoiceData[] choices = Array.Empty<EventChoiceData>();
+    public EventAnimationData[] animations = Array.Empty<EventAnimationData>();
+    public string[] selected_decisions = Array.Empty<string>();
     public int page;
     public int total_pages;
     public int pages_remaining;

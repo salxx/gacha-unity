@@ -22,11 +22,22 @@ public class SupportCardTeamSelector : MonoBehaviour
     private CardGridManager cardGridManager;
     private EventTrigger backgroundEventTrigger;
     private Button selectorButton;
+    private string traineeCharacterId;
+    private int presetGeneration;
 
     public event Action<SupportCardData[]> OnContinue;
     public event Action OnCancel;
 
     public SupportCardData[] SelectedCards => (SupportCardData[])selectedCards.Clone();
+    public int SelectionGeneration => presetGeneration;
+
+    public void SetTrainee(string characterId)
+    {
+        traineeCharacterId = characterId;
+        presetGeneration++;
+        CloseCardGrid();
+        ClearSlots();
+    }
 
     private void Awake()
     {
@@ -125,6 +136,7 @@ public class SupportCardTeamSelector : MonoBehaviour
             return;
         }
 
+        presetGeneration++;
         cardSelectorBackground.SetActive(true);
         var unavailableCardIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (SupportCardData selectedCard in selectedCards)
@@ -138,6 +150,7 @@ public class SupportCardTeamSelector : MonoBehaviour
         cardGridManager.FetchAndInitializeGrid(
             card => HandleCardSelected(slot, card),
             unavailableCardIds,
+            traineeCharacterId,
             error =>
             {
                 Debug.LogError($"Failed to load support cards: {error}", this);
@@ -147,6 +160,7 @@ public class SupportCardTeamSelector : MonoBehaviour
 
     public void LoadPreset(string[] cardIds, Action<string> onError = null)
     {
+        int generation = ++presetGeneration;
         if (cardButtons == null || cardButtons.Length != RequiredCardCount)
         {
             onError?.Invoke("Exactly 6 card buttons must be assigned.");
@@ -193,6 +207,10 @@ public class SupportCardTeamSelector : MonoBehaviour
 
         client.FetchSupportCards(cards =>
         {
+            if (generation != presetGeneration)
+            {
+                return;
+            }
             var cardsById = new Dictionary<string, SupportCardData>(StringComparer.Ordinal);
             foreach (SupportCardData card in cards)
             {
@@ -214,13 +232,25 @@ public class SupportCardTeamSelector : MonoBehaviour
 
             for (int i = 0; i < presetCards.Length; i++)
             {
+                if (string.IsNullOrWhiteSpace(presetCards[i].CharacterId))
+                {
+                    onError?.Invoke($"Support card '{presetCards[i].id}' has no character ID.");
+                    ClearSlots();
+                    return;
+                }
                 selectedCards[i] = presetCards[i];
                 TMP_Text label = cardButtons[i].GetComponentInChildren<TMP_Text>(true);
                 CardGridItem.SetCardDisplay(presetCards[i], cardButtons[i], label, this);
             }
 
             UpdateContinueButton();
-        }, error => onError?.Invoke($"Failed to load support cards: {error}"));
+        }, error =>
+        {
+            if (generation == presetGeneration)
+            {
+                onError?.Invoke($"Failed to load support cards: {error}");
+            }
+        });
     }
 
     private void ClearSlots()
@@ -228,6 +258,10 @@ public class SupportCardTeamSelector : MonoBehaviour
         for (int i = 0; i < selectedCards.Length; i++)
         {
             selectedCards[i] = null;
+            if (cardButtons == null || i >= cardButtons.Length)
+            {
+                continue;
+            }
             Button button = cardButtons[i];
             if (button == null)
             {
@@ -275,6 +309,11 @@ public class SupportCardTeamSelector : MonoBehaviour
         {
             Debug.LogError("Card grid returned no selected card.", this);
         }
+        else if (string.IsNullOrWhiteSpace(card.CharacterId)
+                 || string.Equals(card.CharacterId, traineeCharacterId, StringComparison.Ordinal))
+        {
+            Debug.LogError($"Support card '{card.id}' cannot be used with this trainee.", this);
+        }
         else
         {
             selectedCards[slot] = card;
@@ -283,7 +322,7 @@ public class SupportCardTeamSelector : MonoBehaviour
         }
 
         UpdateContinueButton();
-        cardSelectorBackground.SetActive(false);
+        CloseCardGrid();
     }
 
     private void InitializeBackgroundButton()
@@ -316,6 +355,10 @@ public class SupportCardTeamSelector : MonoBehaviour
 
     private void CloseCardGrid()
     {
+        if (cardGridManager != null)
+        {
+            cardGridManager.CancelPendingLoad();
+        }
         if (cardSelectorBackground != null)
         {
             cardSelectorBackground.SetActive(false);
@@ -344,10 +387,8 @@ public class SupportCardTeamSelector : MonoBehaviour
 
     private void CancelSelection()
     {
-        if (cardSelectorBackground != null)
-        {
-            cardSelectorBackground.SetActive(false);
-        }
+        presetGeneration++;
+        CloseCardGrid();
 
         gameObject.SetActive(false);
         OnCancel?.Invoke();
@@ -377,7 +418,9 @@ public class SupportCardTeamSelector : MonoBehaviour
         var cardIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (SupportCardData card in selectedCards)
         {
-            if (card == null || string.IsNullOrWhiteSpace(card.id) || !cardIds.Add(card.id))
+            if (card == null || string.IsNullOrWhiteSpace(card.id) || !cardIds.Add(card.id)
+                || string.IsNullOrWhiteSpace(card.CharacterId)
+                || string.Equals(card.CharacterId, traineeCharacterId, StringComparison.Ordinal))
             {
                 return false;
             }

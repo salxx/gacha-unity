@@ -101,6 +101,10 @@ public class TrainingManager : MonoBehaviour
     private CanvasGroup eventOverlayGroup;
     private TMP_Text eventTitleText;
     private TMP_Text eventMessageText;
+    private RectTransform eventTrainee;
+    private RectTransform eventSupport;
+    private readonly List<Button> eventChoiceButtons = new List<Button>();
+    private float eventImageHeight;
     private TrainingEventData currentEvent;
     private int eventLineIndex;
     private float eventClickableAt;
@@ -391,6 +395,13 @@ public class TrainingManager : MonoBehaviour
             && Time.unscaledTime >= dialogueExpiresAt)
         {
             traineeDialogueText.text = string.Empty;
+        }
+        foreach (Button button in eventChoiceButtons)
+        {
+            if (button != null)
+            {
+                button.interactable = !eventFinishing && Time.unscaledTime >= eventClickableAt;
+            }
         }
     }
 
@@ -770,10 +781,10 @@ public class TrainingManager : MonoBehaviour
         eventFlowActive = true;
         GameClient.Instance.FetchTrainingEvent(view =>
         {
-            if (view.pages_remaining > 0 || view.choices.Length > 0 || view.text.Length == 0)
+            if (view.text == null || view.text.Length == 0)
             {
                 eventFlowActive = false;
-                ShowMessage("This event requires choices, which are not supported yet.", isError: true);
+                ShowMessage("The event page has no text.", isError: true);
                 return;
             }
 
@@ -800,7 +811,7 @@ public class TrainingManager : MonoBehaviour
         clickEntry.callback.AddListener(HandleEventClick);
         eventOverlay.AddComponent<EventTrigger>().triggers.Add(clickEntry);
 
-        float imageHeight = canvasRect.height * 0.5f;
+        eventImageHeight = canvasRect.height * 0.5f;
         Sprite supportSprite = FindSupportCardEventSprite(view.event_id);
         RectTransform characterRect;
         if (supportSprite != null)
@@ -808,26 +819,28 @@ public class TrainingManager : MonoBehaviour
             // Support card events: the card's character faces the trainee, as if teaching them.
             characterRect = CreateOverlayCharacter(eventOverlay.transform, canvasRect, null,
                 -canvasRect.width * 0.2f, true, 0.3f);
-            CreateOverlayCharacter(eventOverlay.transform, canvasRect, supportSprite,
+            eventSupport = CreateOverlayCharacter(eventOverlay.transform, canvasRect, supportSprite,
                 canvasRect.width * 0.2f, false, 0.3f);
         }
         else
         {
             characterRect = CreateOverlayCharacter(eventOverlay.transform, canvasRect);
+            eventSupport = null;
         }
 
+        eventTrainee = characterRect;
         if (characterRect != null)
         {
-            imageHeight = characterRect.sizeDelta.y;
+            eventImageHeight = characterRect.sizeDelta.y;
         }
 
         eventTitleText = CreateEventText("EventTitle", 48, TextAlignmentOptions.Bottom,
-            new Vector2(0.5f, 0f), new Vector2(0f, imageHeight * 0.5f + 60f), new Vector2(1000f, 90f));
+            new Vector2(0.5f, 0f), new Vector2(0f, eventImageHeight * 0.5f + 60f), new Vector2(1000f, 90f));
         eventTitleText.fontStyle = FontStyles.Bold;
         eventTitleText.text = view.name;
         eventMessageText = CreateEventText("EventMessage", 32, TextAlignmentOptions.Top,
-            new Vector2(0.5f, 1f), new Vector2(0f, -imageHeight * 0.5f - 30f), new Vector2(1000f, 300f));
-        eventMessageText.text = view.text[0];
+            new Vector2(0.5f, 1f), new Vector2(0f, -eventImageHeight * 0.5f - 30f), new Vector2(1000f, 300f));
+        eventMessageText.text = HasEventAnimation(view, 0) ? "" : view.text[0];
 
         StartCoroutine(FadeInEventOverlayWhenReady());
     }
@@ -866,8 +879,8 @@ public class TrainingManager : MonoBehaviour
             yield return null;
         }
 
-        eventClickableAt = Time.unscaledTime + EventFadeInSeconds + EventFirstClickDelaySeconds;
         yield return FadeOverlay(eventOverlayGroup, 0f, 1f, EventFadeInSeconds);
+        yield return DisplayEventLine(0, EventFirstClickDelaySeconds);
     }
 
     private GameObject CreateOverlayRoot(string objectName, out CanvasGroup group)
@@ -973,126 +986,41 @@ public class TrainingManager : MonoBehaviour
 
     private IEnumerator PlayActionAnimation(ActionType action, RectTransform character, float distance)
     {
+        OverlayImageAnimations.Animation animation;
         switch (action)
         {
             case ActionType.TrainPower:
-                for (int i = 0; i < 2; i++)
-                {
-                    yield return MoveCharacter(character, new Vector2(distance, 0f), 0.1f, true);
-                    yield return MoveCharacter(character, Vector2.zero, 0.2f, false);
-                }
-
+                animation = OverlayImageAnimations.Animation.Power;
                 break;
             case ActionType.TrainAgility:
-                SetCharacterFacing(character, true);
-                yield return MoveCharacter(character, new Vector2(distance * 1.1f, 0f), 0.16f, false);
-                SetCharacterFacing(character, false);
-                yield return MoveCharacter(character, new Vector2(-distance * 1.1f, 0f), 0.32f, false);
-                SetCharacterFacing(character, true);
-                yield return MoveCharacter(character, Vector2.zero, 0.16f, false);
+                animation = OverlayImageAnimations.Animation.Agility;
                 break;
             case ActionType.TrainImpact:
-                yield return MoveCharacter(character, new Vector2(-distance * 0.6f, 0f), 0.35f, false);
-                yield return MoveCharacter(character, new Vector2(distance * 1.4f, 0f), 0.08f, true);
-                yield return new WaitForSecondsRealtime(0.15f);
-                yield return MoveCharacter(character, Vector2.zero, 0.25f, false);
+                animation = OverlayImageAnimations.Animation.Impact;
                 break;
             case ActionType.TrainDefense:
-                yield return MoveCharacter(character, new Vector2(-distance * 0.8f, 0f), 0.72f, false);
-                yield return MoveCharacter(character, Vector2.zero, 0.15f, true);
+                animation = OverlayImageAnimations.Animation.Defense;
                 break;
             case ActionType.TrainFinesse:
-                for (int i = 0; i < 12; i++)
-                {
-                    float direction = i % 2 == 0 ? 1f : -1f;
-                    yield return MoveCharacter(character, new Vector2(direction * distance * 0.12f, 0f), 0.05f, false);
-                }
-
-                yield return MoveCharacter(character, Vector2.zero, 0.05f, false);
+                animation = OverlayImageAnimations.Animation.Finesse;
                 break;
             case ActionType.Rest:
-                // Slow breathing: the character swells and settles twice.
-                for (int i = 0; i < 2; i++)
-                {
-                    yield return ScaleCharacter(character, 1.06f, 0.48f);
-                    yield return ScaleCharacter(character, 1f, 0.48f);
-                }
-
+                animation = OverlayImageAnimations.Animation.Rest;
                 break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(action), action, "No animation for action");
         }
-    }
-
-    private static IEnumerator ScaleCharacter(RectTransform character, float factor, float seconds)
-    {
-        float sign = Mathf.Sign(character.localScale.x);
-        float start = Mathf.Abs(character.localScale.y);
-        for (float elapsed = 0f; elapsed < seconds; elapsed += Time.unscaledDeltaTime)
-        {
-            float value = Mathf.SmoothStep(start, factor, elapsed / seconds);
-            character.localScale = new Vector3(sign * value, value, 1f);
-            yield return null;
-        }
-
-        character.localScale = new Vector3(sign * factor, factor, 1f);
+        yield return OverlayImageAnimations.Play(character, animation, distance);
     }
 
     private IEnumerator PlayFailureAnimation(RectTransform character, float distance, Transform overlay)
     {
-        // Same wind-up as impact, but the burst becomes a stumble: topple over, bounce slightly, then lie there.
-        yield return MoveCharacter(character, new Vector2(-distance * 0.6f, 0f), 0.35f, false);
-        StartCoroutine(FloatOverlayText(overlay, "<color=#FF4C4C>Failure</color>", new Vector2(0f, 120f), 0.1f, 96));
-        actionFloatsEndAt = Time.unscaledTime + 0.1f + EventFloatSeconds;
-        yield return MoveCharacter(character, new Vector2(distance * 0.3f, 0f), 0.15f, true);
-        yield return TiltCharacter(character, new Vector2(distance * 0.6f, -distance * 0.5f), -85f, 0.3f);
-        yield return TiltCharacter(character, new Vector2(distance * 0.6f, -distance * 0.4f), -75f, 0.1f);
-        yield return TiltCharacter(character, new Vector2(distance * 0.6f, -distance * 0.5f), -85f, 0.1f);
-        yield return new WaitForSecondsRealtime(0.4f);
-    }
-
-    private static IEnumerator TiltCharacter(RectTransform character, Vector2 targetPosition, float targetAngle,
-        float seconds)
-    {
-        Vector2 startPosition = character.anchoredPosition;
-        float startAngle = character.localEulerAngles.z;
-        if (startAngle > 180f)
+        yield return OverlayImageAnimations.Play(character, OverlayImageAnimations.Animation.Failure, distance, () =>
         {
-            startAngle -= 360f;
-        }
-
-        for (float elapsed = 0f; elapsed < seconds; elapsed += Time.unscaledDeltaTime)
-        {
-            float progress = elapsed / seconds;
-            progress *= progress;
-            character.anchoredPosition = Vector2.Lerp(startPosition, targetPosition, progress);
-            character.localRotation = Quaternion.Euler(0f, 0f, Mathf.Lerp(startAngle, targetAngle, progress));
-            yield return null;
-        }
-
-        character.anchoredPosition = targetPosition;
-        character.localRotation = Quaternion.Euler(0f, 0f, targetAngle);
-    }
-
-    private static void SetCharacterFacing(RectTransform character, bool right)
-    {
-        character.localScale = new Vector3(right ? -1f : 1f, 1f, 1f);
-    }
-
-    private static IEnumerator MoveCharacter(RectTransform character, Vector2 target, float seconds, bool easeOut)
-    {
-        Vector2 start = character.anchoredPosition;
-        for (float elapsed = 0f; elapsed < seconds; elapsed += Time.unscaledDeltaTime)
-        {
-            float progress = elapsed / seconds;
-            if (easeOut)
-            {
-                progress = 1f - (1f - progress) * (1f - progress);
-            }
-
-            character.anchoredPosition = Vector2.Lerp(start, target, progress);
-            yield return null;
-        }
-
-        character.anchoredPosition = target;
+            StartCoroutine(FloatOverlayText(overlay, "<color=#FF4C4C>Failure</color>",
+                new Vector2(0f, 120f), 0.1f, 96));
+            actionFloatsEndAt = Time.unscaledTime + 0.1f + EventFloatSeconds;
+        });
     }
 
     private TMP_Text CreateEventText(string objectName, float fontSize, TextAlignmentOptions alignment,
@@ -1130,25 +1058,183 @@ public class TrainingManager : MonoBehaviour
             return;
         }
 
-        eventClickableAt = Time.unscaledTime + EventClickDelaySeconds;
         if (eventLineIndex < currentEvent.text.Length - 1)
         {
-            eventMessageText.text = currentEvent.text[++eventLineIndex];
+            StartCoroutine(DisplayEventLine(eventLineIndex + 1, EventClickDelaySeconds));
             return;
         }
 
-        StartCoroutine(FinishEvent());
+        if (currentEvent.choices.Length > 0)
+        {
+            return;
+        }
+
+        if (currentEvent.pages_remaining > 0)
+        {
+            AdvanceEventPage(null);
+        }
+        else
+        {
+            StartCoroutine(FinishEvent(null));
+        }
     }
 
-    private IEnumerator FinishEvent()
+    private static bool HasEventAnimation(TrainingEventData view, int line)
+    {
+        return view.animations != null && Array.Exists(view.animations, cue => cue.before_line == line);
+    }
+
+    private IEnumerator DisplayEventLine(int line, float delay)
     {
         eventFinishing = true;
+        eventClickableAt = float.MaxValue;
+        ClearEventChoices();
+        eventLineIndex = line;
+        if (HasEventAnimation(currentEvent, line))
+        {
+            eventMessageText.text = "";
+            foreach (EventAnimationData cue in currentEvent.animations)
+            {
+                if (cue.before_line != line)
+                {
+                    continue;
+                }
+
+                RectTransform actor = cue.actor == "trainee" ? eventTrainee : eventSupport;
+                if (actor == null || !Enum.TryParse(cue.animation, true, out OverlayImageAnimations.Animation animation))
+                {
+                    Debug.LogError($"Cannot play event animation '{cue.animation}' for '{cue.actor}'.", this);
+                    continue;
+                }
+
+                Vector2 position = actor.anchoredPosition;
+                Quaternion rotation = actor.localRotation;
+                Vector3 scale = actor.localScale;
+                float distance = ((RectTransform)traineeImage.canvas.transform).rect.width * 0.12f;
+                yield return OverlayImageAnimations.Play(actor, animation, distance);
+                actor.anchoredPosition = position;
+                actor.localRotation = rotation;
+                actor.localScale = scale;
+            }
+        }
+
+        eventMessageText.text = currentEvent.text[line];
+        if (line == currentEvent.text.Length - 1)
+        {
+            CreateEventChoices();
+        }
+        eventClickableAt = Time.unscaledTime + delay;
+        eventFinishing = false;
+    }
+
+    private void CreateEventChoices()
+    {
+        float width = Mathf.Min(850f, ((RectTransform)traineeImage.canvas.transform).rect.width - 40f);
+        for (int i = 0; i < currentEvent.choices.Length; i++)
+        {
+            EventChoiceData choice = currentEvent.choices[i];
+            GameObject item = new GameObject("EventChoice", typeof(RectTransform), typeof(CanvasRenderer),
+                typeof(Image), typeof(Button));
+            item.transform.SetParent(eventOverlay.transform, false);
+            RectTransform rect = (RectTransform)item.transform;
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = new Vector2(0f, 30f + (currentEvent.choices.Length - 1 - i) * 54f);
+            rect.sizeDelta = new Vector2(width, 48f);
+            Image image = item.GetComponent<Image>();
+            image.color = new Color(0.38f, 0.38f, 0.38f, 1f);
+            Button button = item.GetComponent<Button>();
+            button.targetGraphic = image;
+            button.interactable = false;
+            button.onClick.AddListener(() => SelectEventChoice(choice.id));
+            eventChoiceButtons.Add(button);
+
+            TMP_Text text = CreateEventText(item.transform, "ChoiceText", 26, TextAlignmentOptions.Center,
+                new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(width - 20f, 44f));
+            text.text = choice.text;
+        }
+    }
+
+    private void ClearEventChoices()
+    {
+        foreach (Button button in eventChoiceButtons)
+        {
+            if (button != null)
+            {
+                button.gameObject.SetActive(false);
+                Destroy(button.gameObject);
+            }
+        }
+        eventChoiceButtons.Clear();
+    }
+
+    private void SelectEventChoice(string choiceId)
+    {
+        if (eventFinishing || Time.unscaledTime < eventClickableAt)
+        {
+            return;
+        }
+        if (currentEvent.pages_remaining > 0)
+        {
+            AdvanceEventPage(choiceId);
+        }
+        else
+        {
+            StartCoroutine(FinishEvent(choiceId));
+        }
+    }
+
+    private void AdvanceEventPage(string choiceId)
+    {
+        eventFinishing = true;
+        GameClient.Instance.AdvanceTrainingEvent(choiceId, response =>
+        {
+            if (response.finished || response.@event == null || response.@event.text == null
+                || response.@event.text.Length == 0)
+            {
+                ShowMessage("Invalid event page response from server.", isError: true);
+                eventFinishing = false;
+                return;
+            }
+            currentEvent = response.@event;
+            StartCoroutine(DisplayEventLine(0, EventClickDelaySeconds));
+        }, error =>
+        {
+            ShowMessage($"Failed to advance event: {error}", isError: true);
+            GameClient.Instance.FetchTrainingEvent(view =>
+            {
+                currentEvent = view;
+                StartCoroutine(DisplayEventLine(0, EventClickDelaySeconds));
+            }, refreshError =>
+            {
+                ShowMessage($"Failed to reload event: {refreshError}", isError: true);
+                eventClickableAt = Time.unscaledTime + EventClickDelaySeconds;
+                eventFinishing = false;
+            });
+        });
+    }
+
+    private IEnumerator FinishEvent(string choiceId)
+    {
+        eventFinishing = true;
+        ClearEventChoices();
         eventTitleText.gameObject.SetActive(false);
         eventMessageText.gameObject.SetActive(false);
 
         bool succeeded = false;
         bool failed = false;
-        GameClient.Instance.AdvanceTrainingEvent(null, _ => succeeded = true, error =>
+        GameClient.Instance.AdvanceTrainingEvent(choiceId, response =>
+        {
+            if (response.finished)
+            {
+                succeeded = true;
+            }
+            else
+            {
+                failed = true;
+                ShowMessage("The event did not finish as expected.", isError: true);
+            }
+        }, error =>
         {
             failed = true;
             ShowMessage($"Failed to finish event: {error}", isError: true);
@@ -1157,7 +1243,11 @@ public class TrainingManager : MonoBehaviour
         EventEffectData[] effects = currentEvent.effects;
         for (int i = 0; i < effects.Length; i++)
         {
-            StartCoroutine(FloatEffectText(effects[i], i * EventFloatStaggerSeconds, -i * 45f));
+            if (effects[i].decision == null || effects[i].decision == choiceId
+                || Array.IndexOf(currentEvent.selected_decisions, effects[i].decision) >= 0)
+            {
+                StartCoroutine(FloatEffectText(effects[i], i * EventFloatStaggerSeconds, -i * 45f));
+            }
         }
 
         if (effects.Length > 0)
@@ -1175,6 +1265,7 @@ public class TrainingManager : MonoBehaviour
         {
             eventTitleText.gameObject.SetActive(true);
             eventMessageText.gameObject.SetActive(true);
+            CreateEventChoices();
             eventClickableAt = Time.unscaledTime + EventClickDelaySeconds;
             eventFinishing = false;
             yield break;
