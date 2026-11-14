@@ -200,7 +200,7 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
 - Upon round 36 completion, the run completes and trainee is prepared for graduation.
 
 ### 4.2 PvE Auto-Battler (Combat)
-- Current prototype: Load up to eight recent finished trainees with distinct character IDs and automatically place them in the highest-affinity available slots (two each in Front, Close, Mid and Back).
+- Mission selection uses 3–8 finished trainees with distinct character IDs in player-selected Front, Close, Mid and Back slots (two per lane). The formation runs horizontally from Back to Front, with the second slot offset left. Selecting a slot opens a popup listing trainees by score with rank and affinities; selecting an already-used character moves them to the chosen slot, swapping any occupant into their former slot. Selected slots show the lane, affinity, and any nonzero affinity bonus or penalty. The saved default team is reusable, and the backend supports multiple team IDs.
 - Enemy formation supports up to three combatants each in Front, Mid and Back; current training dummies start in Mid.
 - Enemies are loaded from `data/enemy.json`; tier is an integer mapped to Grunt (1), Elite (2), and Boss (3). Current training dummies are Grunts and carry Basic Selective Targeting.
 - Gear `gear_001` lets its bearer assassinate one Grunt below half health once per battle; it may select a Grunt from any lane.
@@ -226,7 +226,8 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
   - `GET /training/train?player_id={id}&facility={power|agility|impact|defense|finesse}`: Executes training action on the selected facility.
   - `GET /training/rest?player_id={id}`: Executes rest action to recover energy.
   - `POST /training/end?player_id={id}`: Cancels an active run without saving a finished trainee, or finalizes a completed run as a finished trainee; either action removes the pending run. Training and rest actions do not finalize a run; suspend or closing the game leaves it resumable until this endpoint succeeds.
-  - `GET /battle?player_id={id}`: Simulates the battle immediately and returns positioned combatants with timestamped replay actions.
+  - `GET /player-battle-teams?player_id={id}` / `POST /player-battle-teams?player_id={id}`: Loads saved teams and affinity modifiers, or saves a team of trainee IDs with lane and slot assignments.
+  - `GET /battle?player_id={id}&team_id={team}`: Simulates a saved team and returns positioned combatants with slot indices and timestamped replay actions. Without a team ID, the backend retains automatic selection.
 - **Data Stores**:
   - `data/characters.json`: Character catalog definitions with integer `tier` (`1`, `2`, `3`).
   - `data/support_cards.json`: Support card catalog definitions with integer `tier` (`1`, `2`, `3`) and assigned `facility`.

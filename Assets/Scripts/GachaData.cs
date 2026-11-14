@@ -175,6 +175,60 @@ public class CharacterData
 }
 
 [Serializable]
+public class FinishedTraineeData
+{
+    public string trainee_id;
+    public string completed_at;
+    public CharacterData trainee;
+    public int score;
+    public bool has_score;
+}
+
+[Serializable]
+public class FinishedTraineesResponse
+{
+    public bool success;
+    public FinishedTraineeData[] trainees;
+}
+
+[Serializable]
+public class BattleTeamSlotData
+{
+    public string trainee_id;
+    public string lane;
+    public int slot;
+}
+
+[Serializable]
+public class BattleTeamData
+{
+    public string team_id;
+    public BattleTeamSlotData[] slots;
+}
+
+[Serializable]
+public class BattleAffinityModifierData
+{
+    public string grade;
+    public int percent;
+}
+
+[Serializable]
+public class BattleTeamsResponse
+{
+    public bool success;
+    public BattleTeamData[] teams;
+    public BattleAffinityModifierData[] affinity_modifiers;
+}
+
+[Serializable]
+public class BattleTeamResponse
+{
+    public bool success;
+    public BattleTeamData team;
+}
+
+[Serializable]
 public class SupportCardData
 {
     public string id;

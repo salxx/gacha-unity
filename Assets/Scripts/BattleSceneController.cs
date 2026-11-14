@@ -136,6 +136,10 @@ public sealed class BattleSceneController : MonoBehaviour
         string playerId = client.CurrentPlayer.playerId;
         string url = client.BackendUrl.TrimEnd('/') + "/battle?player_id="
             + UnityWebRequest.EscapeURL(playerId);
+        if (!string.IsNullOrWhiteSpace(client.SelectedBattleTeamId))
+        {
+            url += "&team_id=" + UnityWebRequest.EscapeURL(client.SelectedBattleTeamId);
+        }
 
         using (UnityWebRequest request = UnityWebRequest.Get(url))
         {
@@ -193,6 +197,9 @@ public sealed class BattleSceneController : MonoBehaviour
         int characterCount = 0;
         int enemyCount = 0;
         Dictionary<string, int> positionCounts = new Dictionary<string, int>();
+        HashSet<string> occupiedCharacterSlots = new HashSet<string>();
+        bool hasSelectedTeam = GameClient.Instance != null
+            && !string.IsNullOrWhiteSpace(GameClient.Instance.SelectedBattleTeamId);
         foreach (BattleCombatant combatant in replay.combatants)
         {
             if (combatant == null || string.IsNullOrEmpty(combatant.id)
@@ -223,6 +230,12 @@ public sealed class BattleSceneController : MonoBehaviour
             positionCounts.TryGetValue(key, out int positionCount);
             positionCounts[key] = positionCount + 1;
             if (positionCounts[key] > (combatant.side == "character" ? 2 : 3))
+            {
+                return false;
+            }
+            if (hasSelectedTeam && combatant.side == "character"
+                && (!combatant.has_slot || combatant.slot < 0 || combatant.slot > 1
+                    || !occupiedCharacterSlots.Add(position + ":" + combatant.slot)))
             {
                 return false;
             }
@@ -308,9 +321,16 @@ public sealed class BattleSceneController : MonoBehaviour
             }
             else
             {
-                string positionKey = combatant.side + ":" + position;
-                positionSlotIndices.TryGetValue(positionKey, out slotIndex);
-                positionSlotIndices[positionKey] = slotIndex + 1;
+                if (!string.IsNullOrWhiteSpace(GameClient.Instance.SelectedBattleTeamId))
+                {
+                    slotIndex = combatant.slot;
+                }
+                else
+                {
+                    string positionKey = combatant.side + ":" + position;
+                    positionSlotIndices.TryGetValue(positionKey, out slotIndex);
+                    positionSlotIndices[positionKey] = slotIndex + 1;
+                }
             }
             Transform[] lanePositions = GetLanePositions(combatant.side, position);
             if (slotIndex >= lanePositions.Length || lanePositions[slotIndex] == null)
@@ -1179,6 +1199,8 @@ public sealed class BattleSceneController : MonoBehaviour
         public string enemy_id;
         public int tier;
         public string position;
+        public int slot;
+        public bool has_slot;
         public BattleTraits traits;
         public int max_health;
         public int initial_health;

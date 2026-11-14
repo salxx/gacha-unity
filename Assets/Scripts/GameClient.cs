@@ -32,6 +32,7 @@ public class GameClient : Singleton<GameClient>
     private int characterSelectionGeneration;
     private int cardSelectionGeneration;
     private bool isLoadingBattle;
+    private BattleTeamSelector battleTeamSelector;
 
     public PlayerData CurrentPlayer { get; private set; }
     public string BackendUrl => backendUrl;
@@ -39,6 +40,7 @@ public class GameClient : Singleton<GameClient>
     public string[] TrainingTexts { get; private set; } = Array.Empty<string>();
     public bool IsLoggedIn => CurrentPlayer != null;
     public bool CanAffordPack => IsLoggedIn && CurrentPlayer.Tokens >= PackCost;
+    public string SelectedBattleTeamId { get; private set; }
 
     public event Action OnLoginSuccess;
     public event Action OnPullStarted;
@@ -377,15 +379,39 @@ public class GameClient : Singleton<GameClient>
             return;
         }
 
+        if (mainCanvas == null)
+        {
+            ShowStatus("Cannot open battle selection without the home canvas.");
+            return;
+        }
+        if (battleTeamSelector == null)
+        {
+            battleTeamSelector = BattleTeamSelector.Create(mainCanvas.transform, this);
+        }
+        battleTeamSelector.Open();
+    }
+
+    public void StartBattleWithTeam(string teamId)
+    {
+        if (!IsLoggedIn || isLoadingBattle || string.IsNullOrWhiteSpace(teamId))
+        {
+            Debug.LogError("Cannot start a battle without a logged-in player and selected team.", this);
+            return;
+        }
+
+        SelectedBattleTeamId = teamId;
         isLoadingBattle = true;
         battleButton.interactable = false;
         mainCanvas.gameObject.SetActive(false);
-
         Scene battleScene = SceneManager.GetSceneByName(BattleSceneName);
         if (battleScene.isLoaded)
         {
             isLoadingBattle = false;
-            SceneManager.SetActiveScene(battleScene);
+            if (!SceneManager.SetActiveScene(battleScene))
+            {
+                RestoreHomeAfterBattle();
+                ShowStatus($"Failed to activate {BattleSceneName}.");
+            }
             return;
         }
 
@@ -451,6 +477,7 @@ public class GameClient : Singleton<GameClient>
         isLoadingBattle = false;
         mainCanvas.gameObject.SetActive(true);
         battleButton.interactable = true;
+        SelectedBattleTeamId = null;
     }
 
     public void UnloadTrainingScene(Action onCompleted = null)
@@ -896,6 +923,63 @@ public class GameClient : Singleton<GameClient>
             }
 
             onSuccess?.Invoke(response.characters);
+        }, error => onError?.Invoke(error)));
+    }
+
+    public void FetchFinishedTrainees(Action<FinishedTraineeData[]> onSuccess, Action<string> onError)
+    {
+        if (!IsLoggedIn)
+        {
+            onError?.Invoke("Connect to a player before loading finished trainees.");
+            return;
+        }
+        string query = $"/player-finished-trainees?player_id={UnityWebRequest.EscapeURL(CurrentPlayer.playerId)}";
+        StartCoroutine(Get(query, json =>
+        {
+            FinishedTraineesResponse response = JsonUtility.FromJson<FinishedTraineesResponse>(json);
+            if (response == null || !response.success || response.trainees == null)
+            {
+                throw new FormatException("response did not contain finished trainees");
+            }
+            onSuccess?.Invoke(response.trainees);
+        }, error => onError?.Invoke(error)));
+    }
+
+    public void FetchBattleTeams(Action<BattleTeamsResponse> onSuccess, Action<string> onError)
+    {
+        if (!IsLoggedIn)
+        {
+            onError?.Invoke("Connect to a player before loading battle teams.");
+            return;
+        }
+        string query = $"/player-battle-teams?player_id={UnityWebRequest.EscapeURL(CurrentPlayer.playerId)}";
+        StartCoroutine(Get(query, json =>
+        {
+            BattleTeamsResponse response = JsonUtility.FromJson<BattleTeamsResponse>(json);
+            if (response == null || !response.success || response.teams == null || response.affinity_modifiers == null)
+            {
+                throw new FormatException("response did not contain battle teams and affinity modifiers");
+            }
+            onSuccess?.Invoke(response);
+        }, error => onError?.Invoke(error)));
+    }
+
+    public void SaveBattleTeam(BattleTeamData team, Action<BattleTeamData> onSuccess, Action<string> onError)
+    {
+        if (!IsLoggedIn)
+        {
+            onError?.Invoke("Connect to a player before saving a battle team.");
+            return;
+        }
+        string query = $"/player-battle-teams?player_id={UnityWebRequest.EscapeURL(CurrentPlayer.playerId)}";
+        StartCoroutine(PostWithResponse(query, JsonUtility.ToJson(team), json =>
+        {
+            BattleTeamResponse response = JsonUtility.FromJson<BattleTeamResponse>(json);
+            if (response == null || !response.success || response.team == null)
+            {
+                throw new FormatException("response did not contain the saved battle team");
+            }
+            onSuccess?.Invoke(response.team);
         }, error => onError?.Invoke(error)));
     }
 
