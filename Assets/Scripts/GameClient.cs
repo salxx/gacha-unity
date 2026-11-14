@@ -643,6 +643,55 @@ public class GameClient : Singleton<GameClient>
         }, error => { onError?.Invoke(error); }));
     }
 
+    public void FetchTrainingEvent(Action<TrainingEventData> onSuccess, Action<string> onError = null)
+    {
+        if (!IsLoggedIn) return;
+
+        string query = $"/training/event?player_id={UnityWebRequest.EscapeURL(CurrentPlayer.playerId)}";
+        StartCoroutine(Get(query, json =>
+        {
+            TrainingEventResponse response = JsonUtility.FromJson<TrainingEventResponse>(json);
+            if (response == null || !response.success || response.@event == null)
+            {
+                onError?.Invoke("Invalid event response from server.");
+                return;
+            }
+
+            onSuccess?.Invoke(response.@event);
+        }, error => { onError?.Invoke(error); }));
+    }
+
+    /// <summary>
+    /// Advances the pending event. On the final page the effects are applied server-side and the updated run
+    /// is published through OnTrainingRunUpdated.
+    /// </summary>
+    public void AdvanceTrainingEvent(string choiceId, Action<TrainingEventResponse> onSuccess,
+        Action<string> onError = null)
+    {
+        if (!IsLoggedIn) return;
+
+        string query = $"/training/event/advance?player_id={UnityWebRequest.EscapeURL(CurrentPlayer.playerId)}";
+        string body = JsonUtility.ToJson(new EventAdvanceRequestData { choice_id = choiceId });
+        StartCoroutine(PostWithResponse(query, body, json =>
+        {
+            TrainingEventResponse response = JsonUtility.FromJson<TrainingEventResponse>(json);
+            if (response == null || !response.success)
+            {
+                onError?.Invoke("Invalid event response from server.");
+                return;
+            }
+
+            if (response.finished)
+            {
+                CurrentTrainingRun = response.run;
+                UpdateTrainingButtonLabel();
+                OnTrainingRunUpdated?.Invoke(CurrentTrainingRun);
+            }
+
+            onSuccess?.Invoke(response);
+        }, error => { onError?.Invoke(error); }));
+    }
+
     public void FetchTrainingSkills(
         Action<TrainingSkillsResponse> onSuccess, Action<string> onError = null)
     {

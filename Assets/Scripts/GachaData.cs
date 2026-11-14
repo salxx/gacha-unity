@@ -179,6 +179,7 @@ public class SupportCardData
 {
     public string id;
     public string characterId;
+    public string character_id; // as serialized in training runs
     public string title;
     public int tier; // 1 (C), 2 (R), 3 (SR)
     public string facility; // "power" | "agility" | "impact" | "defense" | "finesse"
@@ -284,8 +285,55 @@ public class TrainingRunData
     public SupportCardData[] support_cards = Array.Empty<SupportCardData>();
     public FacilityPreviewMap facility_previews = new FacilityPreviewMap();
     public TrainingActionResult last_action_result;
+    public string event_id;
 
     public bool IsCompleted => status == "completed" || round > max_rounds;
+    public bool HasPendingEvent => !string.IsNullOrEmpty(event_id);
+}
+
+[Serializable]
+public class EventChoiceData
+{
+    public string id;
+    public string text;
+}
+
+[Serializable]
+public class EventEffectData
+{
+    public string type;
+    public string trait;
+    public int amount;
+    public string skill_id;
+    public string skill_name;
+}
+
+[Serializable]
+public class TrainingEventData
+{
+    public string event_id;
+    public string name;
+    public string[] text = Array.Empty<string>();
+    public EventChoiceData[] choices = Array.Empty<EventChoiceData>();
+    public int page;
+    public int total_pages;
+    public int pages_remaining;
+    public EventEffectData[] effects = Array.Empty<EventEffectData>();
+}
+
+[Serializable]
+public class TrainingEventResponse
+{
+    public bool success;
+    public bool finished;
+    public TrainingEventData @event;
+    public TrainingRunData run;
+}
+
+[Serializable]
+public class EventAdvanceRequestData
+{
+    public string choice_id;
 }
 
 [Serializable]

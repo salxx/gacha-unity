@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections;
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -56,6 +58,7 @@ public class TrainingManager : MonoBehaviour
 
     [Header("Status & Stats Displays")] [SerializeField]
     private Slider energySlider;
+    private Image energyPreview;
 
     [SerializeField] private TMP_Text energyText;
     [SerializeField] private TMP_Text roundText;
@@ -75,6 +78,32 @@ public class TrainingManager : MonoBehaviour
     private string dialogueCharacterId;
     private int lastDialogueIndex = -1;
     private float dialogueExpiresAt;
+
+    private const float EventFadeSeconds = 0.2f;
+    private const float EventFadeInSeconds = 0.6f;
+    private const float EventClickDelaySeconds = 0.5f;
+    private const float EventFirstClickDelaySeconds = 2f;
+    private const float EventFloatSeconds = 1.2f;
+    private const float EventFloatStaggerSeconds = 0.3f;
+    private const float EventFloatDistance = 150f;
+    private static readonly Color OverlayBackgroundColor = new Color(0.25f, 0.25f, 0.25f, 1f);
+    private const float ActionOverlayHoldSeconds = 0.25f;
+
+    private GameObject actionOverlay;
+    private GameObject actionBackdrop;
+    private bool actionRequestDone;
+    private bool actionFailed;
+    private float actionFloatsEndAt;
+
+    private bool eventFlowActive;
+    private bool eventFinishing;
+    private GameObject eventOverlay;
+    private CanvasGroup eventOverlayGroup;
+    private TMP_Text eventTitleText;
+    private TMP_Text eventMessageText;
+    private TrainingEventData currentEvent;
+    private int eventLineIndex;
+    private float eventClickableAt;
 
     private void Start()
     {
@@ -109,6 +138,18 @@ public class TrainingManager : MonoBehaviour
 
     private void OnDestroy()
     {
+        if (eventOverlay != null)
+        {
+            Destroy(eventOverlay);
+        }
+        if (actionBackdrop != null)
+        {
+            Destroy(actionBackdrop);
+        }
+        if (actionOverlay != null)
+        {
+            Destroy(actionOverlay);
+        }
         skillShopButton.onClick.RemoveListener(OnSkillShopButtonClicked);
         if (traineeEventTrigger != null && traineeClickEntry != null)
         {
@@ -251,12 +292,14 @@ public class TrainingManager : MonoBehaviour
         if (pendingAction == clickedAction)
         {
             pendingAction = ActionType.None;
+            RefreshEnergyPreview(run);
             ExecuteAction(clickedAction);
         }
         else
         {
             pendingAction = clickedAction;
             DisplayActionPreview(clickedAction, run);
+            RefreshEnergyPreview(run);
             UpdateActionButtons(run);
         }
     }
@@ -293,7 +336,7 @@ public class TrainingManager : MonoBehaviour
         bool mirrored = traineeImage.rectTransform.localScale.x < 0;
         rect.anchorMin = rect.anchorMax = new Vector2(mirrored ? 0 : 1, 1);
         rect.pivot = new Vector2(0, 1);
-        rect.anchoredPosition = new Vector2(mirrored ? -12 : 12, -20);
+        rect.anchoredPosition = new Vector2(mirrored ? -10 : 10, -20);
         rect.sizeDelta = new Vector2(300, 120);
         rect.localScale = new Vector3(mirrored ? -1 : 1, 1, 1);
 
@@ -339,7 +382,7 @@ public class TrainingManager : MonoBehaviour
         }
         lastDialogueIndex = index;
         traineeDialogueText.text = texts[index];
-        dialogueExpiresAt = Time.unscaledTime + 3f;
+        dialogueExpiresAt = Time.unscaledTime + 5f;
     }
 
     private void Update()
@@ -361,6 +404,7 @@ public class TrainingManager : MonoBehaviour
         pendingAction = ActionType.None;
         actionPreviewText.text = "Select a facility or rest to preview stat gains.";
         TrainingRunData run = GameClient.Instance != null ? GameClient.Instance.CurrentTrainingRun : null;
+        RefreshEnergyPreview(run);
         UpdateActionButtons(run);
     }
 
@@ -413,6 +457,56 @@ public class TrainingManager : MonoBehaviour
         {
             UnityEngine.SceneManagement.SceneManager.UnloadSceneAsync(GameClient.TrainingSceneName);
         }
+    }
+
+    /// <summary>Shows the energy the pending action would use (red) or restore (green) on the energy bar.</summary>
+    private void RefreshEnergyPreview(TrainingRunData run)
+    {
+        if (energySlider == null || energySlider.fillRect == null)
+        {
+            return;
+        }
+
+        if (energyPreview == null)
+        {
+            var previewObject = new GameObject("EnergyPreview", typeof(RectTransform), typeof(CanvasRenderer),
+                typeof(Image));
+            previewObject.transform.SetParent(energySlider.fillRect.parent, false);
+            RectTransform previewRect = (RectTransform)previewObject.transform;
+            previewRect.offsetMin = previewRect.offsetMax = Vector2.zero;
+            energyPreview = previewObject.GetComponent<Image>();
+            energyPreview.raycastTarget = false;
+        }
+
+        int amount = 0;
+        if (run != null && run.max_energy > 0 && pendingAction != ActionType.None)
+        {
+            if (pendingAction == ActionType.Rest)
+            {
+                amount = Mathf.Min(50, run.max_energy - run.energy);
+            }
+            else
+            {
+                FacilityPreview preview = run.facility_previews?.GetPreview(ActionToFacilityName(pendingAction));
+                if (preview != null)
+                {
+                    amount = preview.energy_restore > 0 ? preview.energy_restore : -preview.energy_cost;
+                }
+            }
+        }
+
+        energyPreview.gameObject.SetActive(amount != 0);
+        if (amount == 0)
+        {
+            return;
+        }
+
+        float current = (float)run.energy / run.max_energy;
+        float other = Mathf.Clamp01((float)(run.energy + amount) / run.max_energy);
+        RectTransform rect = energyPreview.rectTransform;
+        rect.anchorMin = new Vector2(Mathf.Min(current, other), 0f);
+        rect.anchorMax = new Vector2(Mathf.Max(current, other), 1f);
+        energyPreview.color = amount > 0 ? new Color(0.6f, 1f, 0.7f, 0.85f) : new Color(1f, 0.3f, 0.25f, 0.9f);
     }
 
     private void DisplayActionPreview(ActionType action, TrainingRunData run)
@@ -488,14 +582,25 @@ public class TrainingManager : MonoBehaviour
     {
         SetBusy(true);
         actionPreviewText.text = "Executing action...";
+        actionRequestDone = false;
+        actionFloatsEndAt = 0f;
+        CreateBackdrop();
+        StartCoroutine(PlayActionOverlay(action));
 
         if (action == ActionType.Rest)
         {
             GameClient.Instance.RestTraining(response =>
             {
                 SetBusy(false);
+                actionRequestDone = true;
                 if (response.action_result != null)
                 {
+                    if (actionOverlay != null && response.action_result.energy_recovered > 0)
+                    {
+                        StartCoroutine(FloatOverlayText(actionOverlay.transform,
+                            $"<color=#4CFF6A>{response.action_result.energy_recovered}</color>", Vector2.zero, 0f));
+                        actionFloatsEndAt = Time.unscaledTime + EventFloatSeconds;
+                    }
                     ShowMessage($"Rested! Recovered {response.action_result.energy_recovered} Energy.");
                 }
 
@@ -503,6 +608,7 @@ public class TrainingManager : MonoBehaviour
             }, error =>
             {
                 SetBusy(false);
+                actionRequestDone = true;
                 ShowMessage($"Rest failed: {error}", isError: true);
             });
             return;
@@ -512,6 +618,8 @@ public class TrainingManager : MonoBehaviour
         GameClient.Instance.TrainFacility(facName, response =>
         {
             SetBusy(false);
+            actionRequestDone = true;
+            SpawnTrainingGainTexts(response.action_result);
             if (response.action_result != null)
             {
                 if (response.action_result.success)
@@ -540,6 +648,7 @@ public class TrainingManager : MonoBehaviour
         }, error =>
         {
             SetBusy(false);
+            actionRequestDone = true;
             ShowMessage($"Training request error: {error}", isError: true);
         });
     }
@@ -573,7 +682,23 @@ public class TrainingManager : MonoBehaviour
             energySlider.minValue = 0;
             energySlider.maxValue = run.max_energy;
             energySlider.value = run.energy;
+            Image fillImage = energySlider.fillRect != null ? energySlider.fillRect.GetComponent<Image>() : null;
+            if (fillImage != null)
+            {
+                float ratio = run.max_energy > 0 ? (float)run.energy / run.max_energy : 0f;
+                fillImage.color = ratio >= 0.5f
+                    ? Color.Lerp(new Color(0.95f, 0.8f, 0.2f), new Color(0.3f, 0.85f, 0.4f), (ratio - 0.5f) * 2f)
+                    : Color.Lerp(new Color(0.9f, 0.25f, 0.2f), new Color(0.95f, 0.8f, 0.2f), ratio * 2f);
+            }
+
+            Image backgroundImage = energySlider.transform.Find("Background")?.GetComponent<Image>();
+            if (backgroundImage != null)
+            {
+                backgroundImage.color = new Color(0.1f, 0.1f, 0.1f, 0.85f);
+            }
         }
+
+        RefreshEnergyPreview(run);
 
         if (energyText != null)
         {
@@ -633,6 +758,571 @@ public class TrainingManager : MonoBehaviour
         {
             actionPreviewText.text = "Select a facility or rest to preview stat gains.";
         }
+
+        if (run.HasPendingEvent && !eventFlowActive)
+        {
+            BeginPendingEvent();
+        }
+    }
+
+    private void BeginPendingEvent()
+    {
+        eventFlowActive = true;
+        GameClient.Instance.FetchTrainingEvent(view =>
+        {
+            if (view.pages_remaining > 0 || view.choices.Length > 0 || view.text.Length == 0)
+            {
+                eventFlowActive = false;
+                ShowMessage("This event requires choices, which are not supported yet.", isError: true);
+                return;
+            }
+
+            ShowEventOverlay(view);
+        }, error =>
+        {
+            eventFlowActive = false;
+            ShowMessage($"Failed to load event: {error}", isError: true);
+        });
+    }
+
+    private void ShowEventOverlay(TrainingEventData view)
+    {
+        currentEvent = view;
+        eventLineIndex = 0;
+        eventFinishing = false;
+        eventClickableAt = float.MaxValue;
+
+        Transform canvasTransform = traineeImage.canvas.transform;
+        Rect canvasRect = ((RectTransform)canvasTransform).rect;
+
+        eventOverlay = CreateOverlayRoot("EventOverlay", out eventOverlayGroup);
+        EventTrigger.Entry clickEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerClick };
+        clickEntry.callback.AddListener(HandleEventClick);
+        eventOverlay.AddComponent<EventTrigger>().triggers.Add(clickEntry);
+
+        float imageHeight = canvasRect.height * 0.5f;
+        Sprite supportSprite = FindSupportCardEventSprite(view.event_id);
+        RectTransform characterRect;
+        if (supportSprite != null)
+        {
+            // Support card events: the card's character faces the trainee, as if teaching them.
+            characterRect = CreateOverlayCharacter(eventOverlay.transform, canvasRect, null,
+                -canvasRect.width * 0.2f, true, 0.3f);
+            CreateOverlayCharacter(eventOverlay.transform, canvasRect, supportSprite,
+                canvasRect.width * 0.2f, false, 0.3f);
+        }
+        else
+        {
+            characterRect = CreateOverlayCharacter(eventOverlay.transform, canvasRect);
+        }
+
+        if (characterRect != null)
+        {
+            imageHeight = characterRect.sizeDelta.y;
+        }
+
+        eventTitleText = CreateEventText("EventTitle", 48, TextAlignmentOptions.Bottom,
+            new Vector2(0.5f, 0f), new Vector2(0f, imageHeight * 0.5f + 60f), new Vector2(1000f, 90f));
+        eventTitleText.fontStyle = FontStyles.Bold;
+        eventTitleText.text = view.name;
+        eventMessageText = CreateEventText("EventMessage", 32, TextAlignmentOptions.Top,
+            new Vector2(0.5f, 1f), new Vector2(0f, -imageHeight * 0.5f - 30f), new Vector2(1000f, 300f));
+        eventMessageText.text = view.text[0];
+
+        StartCoroutine(FadeInEventOverlayWhenReady());
+    }
+
+    private Sprite FindSupportCardEventSprite(string eventId)
+    {
+        int marker = eventId == null ? -1 : eventId.IndexOf("_ev_", StringComparison.Ordinal);
+        string ownerId = marker > 0 ? eventId.Substring(0, marker) : null;
+        if (ownerId == null || !ownerId.StartsWith("sc_"))
+        {
+            return null;
+        }
+
+        SupportCardData[] cards = GameClient.Instance?.CurrentTrainingRun?.support_cards;
+        if (cards == null)
+        {
+            return null;
+        }
+
+        foreach (SupportCardData card in cards)
+        {
+            if (card != null && card.id == ownerId && !string.IsNullOrEmpty(card.character_id))
+            {
+                return Resources.Load<Sprite>($"Images/Characters/{card.character_id}");
+            }
+        }
+
+        return null;
+    }
+
+    private IEnumerator FadeInEventOverlayWhenReady()
+    {
+        // Wait until the training action overlay is completely gone, then fade in slowly.
+        while (actionOverlay != null)
+        {
+            yield return null;
+        }
+
+        eventClickableAt = Time.unscaledTime + EventFadeInSeconds + EventFirstClickDelaySeconds;
+        yield return FadeOverlay(eventOverlayGroup, 0f, 1f, EventFadeInSeconds);
+    }
+
+    private GameObject CreateOverlayRoot(string objectName, out CanvasGroup group)
+    {
+        Transform canvasTransform = traineeImage.canvas.transform;
+        GameObject root = new GameObject(objectName, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image),
+            typeof(CanvasGroup));
+        root.transform.SetParent(canvasTransform, false);
+        RectTransform rect = (RectTransform)root.transform;
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = rect.offsetMax = Vector2.zero;
+        root.GetComponent<CanvasRenderer>().cullTransparentMesh = false;
+        Image blocker = root.GetComponent<Image>();
+        blocker.color = OverlayBackgroundColor;
+        blocker.raycastTarget = true;
+        group = root.GetComponent<CanvasGroup>();
+        group.alpha = 0f;
+        root.transform.SetAsLastSibling();
+        return root;
+    }
+
+    /// <summary>Spawns a character mirrored to face right (or left); null when there is no sprite.</summary>
+    private RectTransform CreateOverlayCharacter(Transform parent, Rect canvasRect, Sprite sprite = null,
+        float xOffset = 0f, bool faceRight = true, float widthFraction = 0.5f)
+    {
+        sprite = sprite != null ? sprite : traineeImage.sprite;
+        if (sprite == null)
+        {
+            return null;
+        }
+
+        float scale = Mathf.Min(canvasRect.width * widthFraction / sprite.rect.width,
+            canvasRect.height * 0.5f / sprite.rect.height);
+        GameObject imageObject = new GameObject("OverlayCharacter", typeof(RectTransform), typeof(CanvasRenderer),
+            typeof(Image));
+        imageObject.transform.SetParent(parent, false);
+        RectTransform imageRect = (RectTransform)imageObject.transform;
+        imageRect.anchorMin = imageRect.anchorMax = imageRect.pivot = new Vector2(0.5f, 0.5f);
+        imageRect.anchoredPosition = new Vector2(xOffset, 0f);
+        imageRect.sizeDelta = sprite.rect.size * scale;
+        imageRect.localScale = new Vector3(faceRight ? -1f : 1f, 1f, 1f);
+        Image characterImage = imageObject.GetComponent<Image>();
+        characterImage.sprite = sprite;
+        characterImage.preserveAspect = true;
+        characterImage.raycastTarget = false;
+        return imageRect;
+    }
+
+    private IEnumerator PlayActionOverlay(ActionType action)
+    {
+        actionFailed = false;
+        actionOverlay = CreateOverlayRoot("ActionOverlay", out CanvasGroup group);
+        Rect canvasRect = ((RectTransform)traineeImage.canvas.transform).rect;
+        RectTransform character = CreateOverlayCharacter(actionOverlay.transform, canvasRect);
+        yield return FadeOverlay(group, 0f, 1f);
+
+        // Training animations depend on the outcome, so wait for the response (rest cannot fail).
+        while (action != ActionType.Rest && !actionRequestDone)
+        {
+            yield return null;
+        }
+
+        if (character != null)
+        {
+            float distance = canvasRect.width * 0.12f;
+            if (actionFailed)
+            {
+                yield return PlayFailureAnimation(character, distance, actionOverlay.transform);
+            }
+            else
+            {
+                yield return PlayActionAnimation(action, character, distance);
+            }
+        }
+
+        yield return new WaitForSecondsRealtime(ActionOverlayHoldSeconds);
+        while (!actionRequestDone)
+        {
+            yield return null;
+        }
+
+        while (Time.unscaledTime < actionFloatsEndAt)
+        {
+            yield return null;
+        }
+
+        // Wait for the event (if the new round has one) to be loaded so it can fade in at the same time.
+        while (eventFlowActive && eventOverlay == null)
+        {
+            yield return null;
+        }
+
+        if (!eventFlowActive)
+        {
+            FadeOutBackdrop();
+        }
+
+        yield return FadeOverlay(group, 1f, 0f);
+        Destroy(actionOverlay);
+        actionOverlay = null;
+    }
+
+    private IEnumerator PlayActionAnimation(ActionType action, RectTransform character, float distance)
+    {
+        switch (action)
+        {
+            case ActionType.TrainPower:
+                for (int i = 0; i < 2; i++)
+                {
+                    yield return MoveCharacter(character, new Vector2(distance, 0f), 0.1f, true);
+                    yield return MoveCharacter(character, Vector2.zero, 0.2f, false);
+                }
+
+                break;
+            case ActionType.TrainAgility:
+                SetCharacterFacing(character, true);
+                yield return MoveCharacter(character, new Vector2(distance * 1.1f, 0f), 0.16f, false);
+                SetCharacterFacing(character, false);
+                yield return MoveCharacter(character, new Vector2(-distance * 1.1f, 0f), 0.32f, false);
+                SetCharacterFacing(character, true);
+                yield return MoveCharacter(character, Vector2.zero, 0.16f, false);
+                break;
+            case ActionType.TrainImpact:
+                yield return MoveCharacter(character, new Vector2(-distance * 0.6f, 0f), 0.35f, false);
+                yield return MoveCharacter(character, new Vector2(distance * 1.4f, 0f), 0.08f, true);
+                yield return new WaitForSecondsRealtime(0.15f);
+                yield return MoveCharacter(character, Vector2.zero, 0.25f, false);
+                break;
+            case ActionType.TrainDefense:
+                yield return MoveCharacter(character, new Vector2(-distance * 0.8f, 0f), 0.72f, false);
+                yield return MoveCharacter(character, Vector2.zero, 0.15f, true);
+                break;
+            case ActionType.TrainFinesse:
+                for (int i = 0; i < 12; i++)
+                {
+                    float direction = i % 2 == 0 ? 1f : -1f;
+                    yield return MoveCharacter(character, new Vector2(direction * distance * 0.12f, 0f), 0.05f, false);
+                }
+
+                yield return MoveCharacter(character, Vector2.zero, 0.05f, false);
+                break;
+            case ActionType.Rest:
+                // Slow breathing: the character swells and settles twice.
+                for (int i = 0; i < 2; i++)
+                {
+                    yield return ScaleCharacter(character, 1.06f, 0.48f);
+                    yield return ScaleCharacter(character, 1f, 0.48f);
+                }
+
+                break;
+        }
+    }
+
+    private static IEnumerator ScaleCharacter(RectTransform character, float factor, float seconds)
+    {
+        float sign = Mathf.Sign(character.localScale.x);
+        float start = Mathf.Abs(character.localScale.y);
+        for (float elapsed = 0f; elapsed < seconds; elapsed += Time.unscaledDeltaTime)
+        {
+            float value = Mathf.SmoothStep(start, factor, elapsed / seconds);
+            character.localScale = new Vector3(sign * value, value, 1f);
+            yield return null;
+        }
+
+        character.localScale = new Vector3(sign * factor, factor, 1f);
+    }
+
+    private IEnumerator PlayFailureAnimation(RectTransform character, float distance, Transform overlay)
+    {
+        // Same wind-up as impact, but the burst becomes a stumble: topple over, bounce slightly, then lie there.
+        yield return MoveCharacter(character, new Vector2(-distance * 0.6f, 0f), 0.35f, false);
+        StartCoroutine(FloatOverlayText(overlay, "<color=#FF4C4C>Failure</color>", new Vector2(0f, 120f), 0.1f, 96));
+        actionFloatsEndAt = Time.unscaledTime + 0.1f + EventFloatSeconds;
+        yield return MoveCharacter(character, new Vector2(distance * 0.3f, 0f), 0.15f, true);
+        yield return TiltCharacter(character, new Vector2(distance * 0.6f, -distance * 0.5f), -85f, 0.3f);
+        yield return TiltCharacter(character, new Vector2(distance * 0.6f, -distance * 0.4f), -75f, 0.1f);
+        yield return TiltCharacter(character, new Vector2(distance * 0.6f, -distance * 0.5f), -85f, 0.1f);
+        yield return new WaitForSecondsRealtime(0.4f);
+    }
+
+    private static IEnumerator TiltCharacter(RectTransform character, Vector2 targetPosition, float targetAngle,
+        float seconds)
+    {
+        Vector2 startPosition = character.anchoredPosition;
+        float startAngle = character.localEulerAngles.z;
+        if (startAngle > 180f)
+        {
+            startAngle -= 360f;
+        }
+
+        for (float elapsed = 0f; elapsed < seconds; elapsed += Time.unscaledDeltaTime)
+        {
+            float progress = elapsed / seconds;
+            progress *= progress;
+            character.anchoredPosition = Vector2.Lerp(startPosition, targetPosition, progress);
+            character.localRotation = Quaternion.Euler(0f, 0f, Mathf.Lerp(startAngle, targetAngle, progress));
+            yield return null;
+        }
+
+        character.anchoredPosition = targetPosition;
+        character.localRotation = Quaternion.Euler(0f, 0f, targetAngle);
+    }
+
+    private static void SetCharacterFacing(RectTransform character, bool right)
+    {
+        character.localScale = new Vector3(right ? -1f : 1f, 1f, 1f);
+    }
+
+    private static IEnumerator MoveCharacter(RectTransform character, Vector2 target, float seconds, bool easeOut)
+    {
+        Vector2 start = character.anchoredPosition;
+        for (float elapsed = 0f; elapsed < seconds; elapsed += Time.unscaledDeltaTime)
+        {
+            float progress = elapsed / seconds;
+            if (easeOut)
+            {
+                progress = 1f - (1f - progress) * (1f - progress);
+            }
+
+            character.anchoredPosition = Vector2.Lerp(start, target, progress);
+            yield return null;
+        }
+
+        character.anchoredPosition = target;
+    }
+
+    private TMP_Text CreateEventText(string objectName, float fontSize, TextAlignmentOptions alignment,
+        Vector2 pivot, Vector2 position, Vector2 size)
+    {
+        return CreateEventText(eventOverlay.transform, objectName, fontSize, alignment, pivot, position, size);
+    }
+
+    private TMP_Text CreateEventText(Transform parent, string objectName, float fontSize,
+        TextAlignmentOptions alignment, Vector2 pivot, Vector2 position, Vector2 size)
+    {
+        TMP_Text text = Instantiate(traineeNameText, parent, false);
+        text.name = objectName;
+        text.raycastTarget = false;
+        text.richText = true;
+        text.enableAutoSizing = false;
+        text.textWrappingMode = TextWrappingModes.Normal;
+        text.alignment = alignment;
+        text.fontSize = fontSize;
+        text.color = Color.white;
+        RectTransform rect = text.rectTransform;
+        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = pivot;
+        rect.anchoredPosition = position;
+        rect.sizeDelta = size;
+        rect.localScale = Vector3.one;
+        return text;
+    }
+
+    private void HandleEventClick(BaseEventData eventData)
+    {
+        if (!(eventData is PointerEventData pointer) || pointer.button != PointerEventData.InputButton.Left
+            || eventFinishing || Time.unscaledTime < eventClickableAt)
+        {
+            return;
+        }
+
+        eventClickableAt = Time.unscaledTime + EventClickDelaySeconds;
+        if (eventLineIndex < currentEvent.text.Length - 1)
+        {
+            eventMessageText.text = currentEvent.text[++eventLineIndex];
+            return;
+        }
+
+        StartCoroutine(FinishEvent());
+    }
+
+    private IEnumerator FinishEvent()
+    {
+        eventFinishing = true;
+        eventTitleText.gameObject.SetActive(false);
+        eventMessageText.gameObject.SetActive(false);
+
+        bool succeeded = false;
+        bool failed = false;
+        GameClient.Instance.AdvanceTrainingEvent(null, _ => succeeded = true, error =>
+        {
+            failed = true;
+            ShowMessage($"Failed to finish event: {error}", isError: true);
+        });
+
+        EventEffectData[] effects = currentEvent.effects;
+        for (int i = 0; i < effects.Length; i++)
+        {
+            StartCoroutine(FloatEffectText(effects[i], i * EventFloatStaggerSeconds, -i * 45f));
+        }
+
+        if (effects.Length > 0)
+        {
+            yield return new WaitForSecondsRealtime(
+                (effects.Length - 1) * EventFloatStaggerSeconds + EventFloatSeconds);
+        }
+
+        while (!succeeded && !failed)
+        {
+            yield return null;
+        }
+
+        if (failed)
+        {
+            eventTitleText.gameObject.SetActive(true);
+            eventMessageText.gameObject.SetActive(true);
+            eventClickableAt = Time.unscaledTime + EventClickDelaySeconds;
+            eventFinishing = false;
+            yield break;
+        }
+
+        FadeOutBackdrop();
+        yield return FadeOverlay(eventOverlayGroup, 1f, 0f);
+        Destroy(eventOverlay);
+        eventOverlay = null;
+        eventFlowActive = false;
+    }
+
+    // Plain black cover shown the instant an action starts; stays until the animation and any event are done.
+    private void CreateBackdrop()
+    {
+        FadeOutBackdrop();
+        actionBackdrop = CreateOverlayRoot("ActionBackdrop", out CanvasGroup group);
+        group.alpha = 1f;
+    }
+
+    private void FadeOutBackdrop()
+    {
+        if (actionBackdrop != null)
+        {
+            GameObject backdrop = actionBackdrop;
+            actionBackdrop = null;
+            StartCoroutine(FadeAndDestroy(backdrop));
+        }
+    }
+
+    private static IEnumerator FadeAndDestroy(GameObject target)
+    {
+        yield return FadeOverlay(target.GetComponent<CanvasGroup>(), 1f, 0f);
+        Destroy(target);
+    }
+
+    private IEnumerator FloatEffectText(EventEffectData effect, float delay, float yOffset)
+    {
+        string sign = effect.amount > 0 ? "+" : "";
+        string label;
+        if (effect.type == "restore_energy")
+        {
+            string color = effect.amount > 0 ? "#3CDC50" : "#FF4C4C";
+            label = $"<color={color}>{sign}{effect.amount} Energy</color>";
+        }
+        else if (effect.type == "modify_trait" && !string.IsNullOrEmpty(effect.trait))
+        {
+            string trait = effect.trait.ToLowerInvariant();
+            string text = $"<sprite=\"{trait}\" name=\"{trait}\"> {sign}{effect.amount}";
+            label = effect.amount > 0 ? text : $"<color=#FF4C4C>{text}</color>";
+        }
+        else if (effect.type == "unlock_skill" && !string.IsNullOrEmpty(effect.skill_name))
+        {
+            label = $"Unlocked: {effect.skill_name}";
+        }
+        else
+        {
+            label = $"{effect.type} {effect.amount}";
+        }
+
+        return FloatOverlayText(eventOverlay.transform, label, new Vector2(0f, yOffset), delay);
+    }
+
+    private IEnumerator FloatOverlayText(Transform parent, string label, Vector2 startPosition, float delay,
+        int fontSize = 44)
+    {
+        if (delay > 0f)
+        {
+            yield return new WaitForSecondsRealtime(delay);
+        }
+
+        TMP_Text text = CreateEventText(parent, "FloatingText", fontSize, TextAlignmentOptions.Center,
+            new Vector2(0.5f, 0.5f), startPosition, new Vector2(600f, 80f));
+        text.fontStyle = FontStyles.Bold;
+        text.text = label;
+
+        for (float elapsed = 0f; elapsed < EventFloatSeconds; elapsed += Time.unscaledDeltaTime)
+        {
+            float progress = elapsed / EventFloatSeconds;
+            text.rectTransform.anchoredPosition = startPosition + new Vector2(0f, EventFloatDistance * progress);
+            text.alpha = 1f - progress * progress;
+            yield return null;
+        }
+
+        Destroy(text.gameObject);
+    }
+
+    private void SpawnTrainingGainTexts(TrainingActionResult result)
+    {
+        if (actionOverlay == null || result == null)
+        {
+            return;
+        }
+
+        if (!result.success)
+        {
+            actionFailed = true;
+            return;
+        }
+
+        var labels = new List<string>
+        {
+            $"<sprite=\"{result.main_stat.ToLowerInvariant()}\" name=\"{result.main_stat.ToLowerInvariant()}\"> {result.main_gain}",
+            $"<sprite=\"{result.secondary_stat.ToLowerInvariant()}\" name=\"{result.secondary_stat.ToLowerInvariant()}\"> {result.secondary_gain}",
+            $"<color=#FFD84A>{result.skill_points_gain} SP</color>"
+        };
+        if (result.energy_recovered > 0)
+        {
+            labels.Add($"<color=#4CFF6A>{result.energy_recovered}</color>");
+        }
+        else if (result.energy_consumed > 0)
+        {
+            labels.Add($"<color=#FF4C4C>-{result.energy_consumed}</color>");
+        }
+
+        // One slot per text (2x2 grid, shuffled) with random jitter inside it, so texts stay apart but positions vary.
+        var slots = new List<Vector2>
+        {
+            new Vector2(-1f, 1f), new Vector2(1f, 1f), new Vector2(-1f, -1f), new Vector2(1f, -1f)
+        };
+        for (int i = slots.Count - 1; i > 0; i--)
+        {
+            int j = UnityEngine.Random.Range(0, i + 1);
+            (slots[i], slots[j]) = (slots[j], slots[i]);
+        }
+
+        for (int i = 0; i < labels.Count; i++)
+        {
+            var position = new Vector2(
+                slots[i].x * UnityEngine.Random.Range(60f, 300f),
+                slots[i].y * UnityEngine.Random.Range(20f, 150f));
+            StartCoroutine(FloatOverlayText(actionOverlay.transform, labels[i], position,
+                i * EventFloatStaggerSeconds * 0.5f));
+        }
+
+        actionFloatsEndAt = Time.unscaledTime + (labels.Count - 1) * EventFloatStaggerSeconds * 0.5f +
+                            EventFloatSeconds;
+    }
+
+    private static IEnumerator FadeOverlay(CanvasGroup group, float from, float to, float seconds = EventFadeSeconds)
+    {
+        for (float elapsed = 0f; elapsed < seconds; elapsed += Time.unscaledDeltaTime)
+        {
+            group.alpha = Mathf.Lerp(from, to, elapsed / seconds);
+            yield return null;
+        }
+
+        group.alpha = to;
     }
 
     private static string FindCardLocation(string cardId, FacilityPreviewMap previews)
@@ -744,7 +1434,7 @@ public class TrainingManager : MonoBehaviour
     private void UpdateActionButtons(TrainingRunData run)
     {
         RefreshSupportCardsText(run);
-        bool canTrain = !isProcessing && run != null && !run.IsCompleted;
+        bool canTrain = !isProcessing && run != null && !run.IsCompleted && !run.HasPendingEvent;
         UpdateActionButton(powerFacilityButton, ActionType.TrainPower, canTrain);
         UpdateActionButton(agilityFacilityButton, ActionType.TrainAgility, canTrain);
         UpdateActionButton(impactFacilityButton, ActionType.TrainImpact, canTrain);
@@ -752,7 +1442,7 @@ public class TrainingManager : MonoBehaviour
         UpdateActionButton(finesseFacilityButton, ActionType.TrainFinesse, canTrain);
         UpdateActionButton(restButton, ActionType.Rest, canTrain && run.energy < run.max_energy);
         endTrainingButton.interactable = !isProcessing && run != null;
-        skillShopButton.interactable = !isProcessing && run != null;
+        skillShopButton.interactable = !isProcessing && run != null && !run.HasPendingEvent;
     }
 
     private void UpdateActionButton(Button button, ActionType action, bool canTrain)
