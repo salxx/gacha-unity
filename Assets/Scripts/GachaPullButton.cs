@@ -4,7 +4,7 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 /// <summary>
-/// Pulls a pack from one banner. Visibility follows login state; the parent canvas controls scene visibility.
+/// Opens gacha selection and manages the pull scene.
 /// </summary>
 public class GachaPullButton : MonoBehaviour
 {
@@ -13,10 +13,10 @@ public class GachaPullButton : MonoBehaviour
 
     [SerializeField] private Button pullButton;
 
-    [Tooltip("Target gacha banner: 'character' or 'support_card'")]
-    [SerializeField] private string targetGacha = "character";
-
     private GameClient client;
+    private GachaSelectionScreen selectionScreen;
+    private string targetGacha;
+    private DailyFeaturedGacha featuredGacha;
     private GachaItemSpawner activeSpawner;
     private bool isLoadingGachaScene;
     private bool isWaitingForPullResponse;
@@ -28,7 +28,15 @@ public class GachaPullButton : MonoBehaviour
         client = GameClient.Instance;
         isGachaSceneBusy = false;
 
-        pullButton.onClick.AddListener(OnPullButtonClicked);
+        selectionScreen = GachaSelectionScreen.Create(pullButton.transform.parent, client, StartPull);
+        if (selectionScreen == null)
+        {
+            pullButton.interactable = false;
+        }
+        else
+        {
+            pullButton.onClick.AddListener(OnPullButtonClicked);
+        }
         client.OnLoginSuccess += RefreshVisibility;
 
         RefreshVisibility();
@@ -48,6 +56,10 @@ public class GachaPullButton : MonoBehaviour
         {
             activeSpawner.OnSequenceEnded -= HandleSequenceEnded;
         }
+        if (selectionScreen != null)
+        {
+            Destroy(selectionScreen.gameObject);
+        }
     }
 
     private void OnPullButtonClicked()
@@ -57,6 +69,17 @@ public class GachaPullButton : MonoBehaviour
             return;
         }
 
+        selectionScreen.Open();
+    }
+
+    private void StartPull(string target, DailyFeaturedGacha featured)
+    {
+        if (isLoadingGachaScene || isGachaSceneBusy || client == null || !client.IsLoggedIn)
+        {
+            return;
+        }
+        targetGacha = target;
+        featuredGacha = featured;
         isLoadingGachaScene = true;
         isGachaSceneBusy = true;
         client.StartCoroutine(LoadGachaSceneAndPull());
@@ -70,6 +93,7 @@ public class GachaPullButton : MonoBehaviour
             if (loadOperation == null)
             {
                 Debug.LogError($"Could not start loading scene '{GachaSceneName}'.");
+                selectionScreen.ShowError("Could not load the gacha scene.");
                 FinishGachaScene();
                 yield break;
             }
@@ -83,6 +107,7 @@ public class GachaPullButton : MonoBehaviour
         if (activeSpawner == null)
         {
             Debug.LogError($"Scene '{GachaSceneName}' does not contain an active GachaItemSpawner.");
+            selectionScreen.ShowError("The gacha scene is missing its reward display.");
             yield return UnloadGachaScene();
             yield break;
         }
@@ -92,7 +117,7 @@ public class GachaPullButton : MonoBehaviour
         isWaitingForPullResponse = true;
         hasPullResponse = false;
         hasSequenceEnded = false;
-        client.Pull(targetGacha);
+        client.Pull(targetGacha, featuredGacha, selectionScreen.ShowError);
     }
 
     private void HandlePullFinished()
@@ -150,6 +175,7 @@ public class GachaPullButton : MonoBehaviour
         hasSequenceEnded = false;
         isGachaSceneBusy = false;
         client?.OnGachaSceneClosed();
+        selectionScreen?.RefreshBanners();
     }
 
     private void RefreshVisibility()

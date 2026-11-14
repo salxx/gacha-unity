@@ -483,6 +483,25 @@ public class GachaReward
 }
 
 [Serializable]
+public class DailyFeaturedGacha
+{
+    public string featured_id;
+    public string character_id;
+    public string name;
+    public string title;
+    public string rotation_date;
+    public string ends_at;
+}
+
+[Serializable]
+public class DailyGachaBannersResponse
+{
+    public bool success;
+    public DailyFeaturedGacha character;
+    public DailyFeaturedGacha support_card;
+}
+
+[Serializable]
 public class GachaResponse
 {
     public bool success;

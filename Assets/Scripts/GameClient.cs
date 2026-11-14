@@ -802,16 +802,42 @@ public class GameClient : Singleton<GameClient>
         }, error => { onError?.Invoke(error); }));
     }
 
-    public void Pull(string banner)
+    public void FetchDailyGachaBanners(Action<DailyGachaBannersResponse> onSuccess, Action<string> onError)
+    {
+        StartCoroutine(Get("/gacha-banners", json =>
+        {
+            DailyGachaBannersResponse response = JsonUtility.FromJson<DailyGachaBannersResponse>(json);
+            if (response == null || !response.success
+                || !IsValidDailyGacha(response.character) || !IsValidDailyGacha(response.support_card))
+            {
+                throw new FormatException("response did not contain valid daily gacha banners");
+            }
+            onSuccess(response);
+        }, onError));
+    }
+
+    private static bool IsValidDailyGacha(DailyFeaturedGacha banner)
+    {
+        return banner != null && !string.IsNullOrWhiteSpace(banner.featured_id)
+            && !string.IsNullOrWhiteSpace(banner.character_id) && !string.IsNullOrWhiteSpace(banner.name)
+            && !string.IsNullOrWhiteSpace(banner.title) && !string.IsNullOrWhiteSpace(banner.rotation_date)
+            && DateTimeOffset.TryParse(banner.ends_at, out _);
+    }
+
+    public void Pull(string banner, DailyFeaturedGacha featured, Action<string> onError)
     {
         if (!IsLoggedIn)
         {
+            onError?.Invoke("Connect to a player before pulling.");
+            OnPullFinished?.Invoke();
             return;
         }
 
         if (!CanAffordPack)
         {
-            ShowStatus($"Insufficient tokens ({PackCost} tokens required)");
+            string error = $"Insufficient tokens ({PackCost} tokens required)";
+            ShowStatus(error);
+            onError?.Invoke(error);
             OnPullFinished?.Invoke();
             return;
         }
@@ -820,6 +846,11 @@ public class GameClient : Singleton<GameClient>
 
         string query =
             $"/gacha-pack?player_id={UnityWebRequest.EscapeURL(CurrentPlayer.playerId)}&target={UnityWebRequest.EscapeURL(banner)}";
+        if (featured != null)
+        {
+            query += $"&rotation_date={UnityWebRequest.EscapeURL(featured.rotation_date)}"
+                + $"&featured_id={UnityWebRequest.EscapeURL(featured.featured_id)}";
+        }
         StartCoroutine(Get(query, json =>
         {
             GachaResponse response = JsonUtility.FromJson<GachaResponse>(json);
@@ -837,6 +868,7 @@ public class GameClient : Singleton<GameClient>
         }, error =>
         {
             ShowStatus(error);
+            onError?.Invoke(error);
             OnPullFinished?.Invoke();
         }));
     }
