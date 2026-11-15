@@ -33,6 +33,7 @@ public class GameClient : Singleton<GameClient>
     private int cardSelectionGeneration;
     private bool isLoadingBattle;
     private BattleTeamSelector battleTeamSelector;
+    private DailyLoginPopup dailyLoginPopup;
 
     public PlayerData CurrentPlayer { get; private set; }
     public string BackendUrl => backendUrl;
@@ -137,7 +138,59 @@ public class GameClient : Singleton<GameClient>
             ShowStatus();
             OnLoginSuccess?.Invoke();
             onSuccess?.Invoke();
+            if (mainCanvas == null)
+            {
+                Debug.LogError("Cannot check daily login rewards without the home canvas.", this);
+                ShowStatus("Cannot check daily login rewards: home canvas is missing.");
+                return;
+            }
+            if (dailyLoginPopup == null)
+            {
+                dailyLoginPopup = DailyLoginPopup.Create(mainCanvas.transform, this);
+            }
+            dailyLoginPopup.Open();
         }, error => onError?.Invoke(error)));
+    }
+
+    public void FetchDailyLogin(Action<DailyLoginStatus> onSuccess, Action<string> onError)
+    {
+        string playerId = CurrentPlayer.playerId;
+        PlayerStats statsAtRequest = CurrentPlayer.stats;
+        StartCoroutine(Get($"/daily-login?player_id={UnityWebRequest.EscapeURL(playerId)}", json =>
+        {
+            DailyLoginStatus response = JsonUtility.FromJson<DailyLoginStatus>(json);
+            if (response == null || !response.success || response.player_id != playerId || response.stats == null
+                || string.IsNullOrEmpty(response.date) || response.rewards == null)
+            {
+                throw new FormatException("Invalid daily login status");
+            }
+            if (!IsLoggedIn || CurrentPlayer.playerId != playerId) return;
+            if (CurrentPlayer.stats == statsAtRequest)
+            {
+                CurrentPlayer.stats = response.stats;
+                ShowStatus();
+            }
+            onSuccess(response);
+        }, onError));
+    }
+
+    public void ClaimDailyLogin(string date, Action onSuccess, Action<string> onError)
+    {
+        string playerId = CurrentPlayer.playerId;
+        string query = $"/daily-login/claim?player_id={UnityWebRequest.EscapeURL(playerId)}"
+            + $"&date={UnityWebRequest.EscapeURL(date)}";
+        StartCoroutine(PostWithResponse(query, "{}", json =>
+        {
+            DailyLoginClaim response = JsonUtility.FromJson<DailyLoginClaim>(json);
+            if (response == null || !response.success || response.player_id != playerId || response.stats == null)
+            {
+                throw new FormatException("Invalid daily login claim response");
+            }
+            if (!IsLoggedIn || CurrentPlayer.playerId != playerId) return;
+            CurrentPlayer.stats = response.stats;
+            ShowStatus();
+            onSuccess();
+        }, onError));
     }
 
     public void OnTrainingButtonClicked()

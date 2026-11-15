@@ -81,6 +81,7 @@ All catalog entries and gacha pull returns use an integer `tier` value (`1`, `2`
   - **Tier 2 (Super Rare / SR)**: Max Level **40**
   - **Tier 3 (SSR)**: Max Level **50**
 - Levels are upgraded outside the gacha reward catalog using in-game currencies.
+- Player currencies include power, agility, impact, defense, and finesse shards as planned support-card upgrade materials. They start at zero and are separate from character duplicate shards; earning, spending, and upgrade costs are not yet implemented.
 - Provide training event opportunities, stat gains, and teachable battle skills.
 - **Example Data Contract**:
   ```json
@@ -202,6 +203,7 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
 ### 4.2 PvE Auto-Battler (Combat)
 - Mission selection uses 3–8 finished trainees with distinct character IDs in player-selected Front, Close, Mid and Back slots (two per lane). The formation runs horizontally from Back to Front, with the second slot offset left. Selecting a slot opens a popup listing trainees by score with rank and affinities; selecting an already-used character moves them to the chosen slot, swapping any occupant into their former slot. Selected slots show the lane, affinity, and any nonzero affinity bonus or penalty. The saved default team is reusable, and the backend supports multiple team IDs.
 - The HomeScene gacha button opens the `GachaSelectionScreen` prefab with standard and daily featured banners for both characters and support cards. Daily tier-3 features rotate at midnight UTC; the featured banners show a countdown based on the server's expiry time and the device clock. Each tier-3 pull has a 50% featured chance, otherwise using the normal pool (which can also contain the feature). Every banner costs 900 tokens for 10 pulls. Clicking the background closes the selection.
+- After login, the daily bonus is checked before showing a blocking popup for available rewards. Claiming credits 100 tokens and refreshes the displayed balance. The reward resets at midnight UTC; missed days do not accumulate. Failed checks and claims can be retried from the popup.
 - Enemy formation supports up to three combatants each in Front, Mid and Back; current training dummies start in Mid.
 - Enemies are loaded from `data/enemy.json`; tier is an integer mapped to Grunt (1), Elite (2), and Boss (3). Current training dummies are Grunts and carry Basic Selective Targeting.
 - Gear `gear_001` lets its bearer assassinate one Grunt below half health once per battle; it may select a Grunt from any lane.
@@ -216,7 +218,9 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
 - **API Endpoints**:
   - `GET /`: Health check.
   - `GET /connect?player_id={id}`: Player handshake and profile load.
-  - `GET /player-stats?player_id={id}`: Player token balance and pack stats.
+  - `GET /player-stats?player_id={id}`: Player token and trait shard balances and pack stats.
+  - `GET /daily-login?player_id={id}`: Current UTC reward date, availability, reward list, and player stats.
+  - `POST /daily-login/claim?player_id={id}&date={UTC-date}`: Atomically claim the displayed reward and return updated player stats. Retrying a claimed date does not award it twice; an expired unclaimed date must be checked again.
   - `GET /gacha-pack?player_id={id}&target={character|support_card}`: Executes 10-pull pack on target banner returning integer tiers (`tier: 1..3`) and debits tokens.
   - `GET /training/start-or-resume?player_id={id}&character_id={id}&support_card_ids={id1,id2,...}`: Returns an active or completed-but-unfinalized training run, or initializes a new one when none exists. The response includes the character's `training_texts` array.
   - `GET /training/state?player_id={id}`: Fetches the current active or completed-but-unfinalized run and its `training_texts`. Clicking the trainee displays a locally selected message for three seconds without an additional request.
@@ -232,12 +236,12 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
 - **Data Stores**:
   - `data/characters.json`: Character catalog definitions with integer `tier` (`1`, `2`, `3`).
   - `data/support_cards.json`: Support card catalog definitions with integer `tier` (`1`, `2`, `3`) and assigned `facility`.
-  - MongoDB `users`: Player profiles and tokens.
+  - MongoDB `users`: Player profiles, tokens, and trait shard balances.
   - MongoDB `training_runs`: Active training run states.
 
 - **Response Contract**:
   - Every pulled reward carries `type` (`character` | `support_card`) and `awarded_at`.
-  - `/connect`, `/player-stats` and `/gacha-pack` all return the same `stats` object (`name`, `tokens`, `packs_opened`, `ssr_offset`).
+  - `/connect`, `/player-stats` and `/gacha-pack` all return the same `stats` object (`name`, `tokens`, `trait_shards`, `packs_opened`, `ssr_offset`, `sr_offset`). `trait_shards` contains the five trait balances.
 
 ### 5.2 Frontend (Unity C#)
 - **Data Structures** (`GachaData.cs`, `PlayerData.cs`):
