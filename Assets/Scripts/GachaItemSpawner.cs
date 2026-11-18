@@ -437,12 +437,49 @@ public class GachaItemSpawner : Singleton<GachaItemSpawner>
     {
         GameObject item = Instantiate(GetPrefab(reward.Tier, reward.IsSupportCard), position, Quaternion.identity);
         item.name = $"Reward_{index + 1}_Tier{reward.Tier}_{reward.id}";
-        if (!reward.IsSupportCard)
+        if (reward.IsSupportCard)
+        {
+            SetSupportCardRewardImage(item, reward);
+        }
+        else
         {
             SetCharacterRewardImage(item, reward);
         }
         spawnedItems.Add(item);
         return item;
+    }
+
+    private static void SetSupportCardRewardImage(GameObject item, GachaReward reward)
+    {
+        Sprite cardSprite = Resources.Load<Sprite>($"Images/Cards/{reward.id}");
+        if (cardSprite == null)
+        {
+            return;
+        }
+
+        Canvas canvas = item.GetComponentInChildren<Canvas>(true);
+        if (canvas == null)
+        {
+            Debug.LogError($"Support card reward prefab for {reward.id} has no child Canvas.", item);
+            return;
+        }
+
+        Transform cardImage = canvas.transform.Find("Image");
+        Image image = cardImage != null ? cardImage.GetComponent<Image>() : null;
+        if (image == null)
+        {
+            Debug.LogError($"Support card reward prefab for {reward.id} has no card Image.", item);
+            return;
+        }
+
+        image.sprite = cardSprite;
+        foreach (Image overlay in canvas.GetComponentsInChildren<Image>(true))
+        {
+            if (overlay != image)
+            {
+                overlay.gameObject.SetActive(false);
+            }
+        }
     }
 
     private static void SetCharacterRewardImage(GameObject item, GachaReward reward)

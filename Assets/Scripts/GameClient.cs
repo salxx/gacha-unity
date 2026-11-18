@@ -861,7 +861,7 @@ public class GameClient : Singleton<GameClient>
         {
             DailyGachaBannersResponse response = JsonUtility.FromJson<DailyGachaBannersResponse>(json);
             if (response == null || !response.success
-                || !IsValidDailyGacha(response.character) || !IsValidDailyGacha(response.support_card))
+                || !IsValidDailyGacha(response.character, false) || !IsValidDailyGacha(response.support_card, true))
             {
                 throw new FormatException("response did not contain valid daily gacha banners");
             }
@@ -869,12 +869,19 @@ public class GameClient : Singleton<GameClient>
         }, onError));
     }
 
-    private static bool IsValidDailyGacha(DailyFeaturedGacha banner)
+    private static bool IsValidDailyGacha(DailyFeaturedGacha banner, bool supportCard)
     {
         return banner != null && !string.IsNullOrWhiteSpace(banner.featured_id)
             && !string.IsNullOrWhiteSpace(banner.character_id) && !string.IsNullOrWhiteSpace(banner.name)
             && !string.IsNullOrWhiteSpace(banner.title) && !string.IsNullOrWhiteSpace(banner.rotation_date)
-            && DateTimeOffset.TryParse(banner.ends_at, out _);
+            && DateTimeOffset.TryParse(banner.ends_at, out _)
+            && IsValidBannerTrait(supportCard ? banner.facility : banner.main_trait);
+    }
+
+    private static bool IsValidBannerTrait(string trait)
+    {
+        return trait == "power" || trait == "agility" || trait == "impact"
+            || trait == "defense" || trait == "finesse";
     }
 
     public void Pull(string banner, DailyFeaturedGacha featured, Action<string> onError)

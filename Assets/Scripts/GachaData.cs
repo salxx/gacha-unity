@@ -159,18 +159,17 @@ public class CharacterData
     public GearData gear;
     public string[] skills = Array.Empty<string>();
 
-    public string StarsDisplay
+    public string StarsDisplay => FormatStars(tier);
+
+    public static string FormatStars(int tier)
     {
-        get
+        int count = Mathf.Max(tier, 1);
+        System.Text.StringBuilder sb = new System.Text.StringBuilder();
+        for (int i = 0; i < count; i++)
         {
-            int count = Mathf.Max(tier, 1);
-            System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            for (int i = 0; i < count; i++)
-            {
-                sb.Append("<sprite name=\"Star\">");
-            }
-            return sb.ToString();
+            sb.Append("<sprite name=\"Star\">");
         }
+        return sb.ToString();
     }
 }
 
@@ -427,6 +426,7 @@ public class GachaReward
 {
     public string id;
     public string characterId;
+    public string character_id;
     public string name;
     public string title;
     public int tier;
@@ -455,7 +455,7 @@ public class GachaReward
     public SupportCardData ToSupportCard() => new SupportCardData
     {
         id = id,
-        characterId = characterId,
+        characterId = !string.IsNullOrWhiteSpace(character_id) ? character_id : characterId,
         title = title,
         tier = Tier,
         facility = !string.IsNullOrEmpty(facility) ? facility : (data?.facility ?? "power"),
@@ -471,7 +471,8 @@ public class GachaReward
             if (IsSupportCard)
             {
                 SupportCardData card = ToSupportCard();
-                string header = $"{displayName} [{Tiers.ShortName(Tier)} | {card.facility.ToUpperInvariant()}]";
+                string cardTitle = string.IsNullOrEmpty(title) ? "Unknown" : title;
+                string header = $"{cardTitle} [{Tiers.ShortName(Tier)} | {card.facility.ToUpperInvariant()}]";
                 return card.skills.Length > 0 ? $"{header} ({string.Join(", ", card.skills)})" : header;
             }
 
@@ -489,6 +490,8 @@ public class DailyFeaturedGacha
     public string character_id;
     public string name;
     public string title;
+    public string main_trait;
+    public string facility;
     public string rotation_date;
     public string ends_at;
 }
@@ -532,6 +535,8 @@ public class PlayerCharactersResponse
 public class OwnedCharacterData
 {
     public string character_id;
+    public CharacterData character;
+    public int tier;
 }
 
 [Serializable]

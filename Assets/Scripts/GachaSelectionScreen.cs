@@ -172,8 +172,10 @@ public sealed class GachaSelectionScreen : MonoBehaviour
     private void UpdateDailyText(
         int index, string category, DailyFeaturedGacha featured, DateTimeOffset expiresAt, DateTimeOffset now)
     {
+        string trait = index == 1 ? featured.main_trait : featured.facility;
         labels[index].text = StandardText(category)
-            + $"\nFeatured: {featured.name}\nExpires in: {FormatCountdown(expiresAt, now)}";
+            + $"\nFeatured: <sprite=\"{trait}\" name=\"{trait}\"> {featured.name}"
+            + $"\nExpires in: {FormatCountdown(expiresAt, now)}";
     }
 
     private static string FormatCountdown(DateTimeOffset expiresAt, DateTimeOffset now)

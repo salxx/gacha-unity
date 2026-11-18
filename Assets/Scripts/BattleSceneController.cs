@@ -29,6 +29,7 @@ public sealed class BattleSceneController : MonoBehaviour
     [SerializeField] private Button finishButton;
 
     private const float InitialPlaybackSpeed = 1f;
+    private const float FastPlaybackSpeed = 2f;
     private const float GearTriggerPauseDelay = 0.2f;
     private const float GearTriggerTransitionDuration = 0.3f;
     private const float GearTriggerDisplayDuration = 1f;
@@ -49,6 +50,8 @@ public sealed class BattleSceneController : MonoBehaviour
     private bool isBattlePaused;
     private bool isShowingGearIntro;
     private GameObject activeGearIntroObject;
+    private Button speedButton;
+    private TMP_Text speedButtonText;
     private readonly Dictionary<string, BattleCombatant> combatantsById =
         new Dictionary<string, BattleCombatant>();
     private readonly Dictionary<string, CombatantUi> uiByCombatantId =
@@ -63,11 +66,29 @@ public sealed class BattleSceneController : MonoBehaviour
         new HashSet<string>();
     private readonly StringBuilder logBuilder = new StringBuilder();
 
+    private void Awake()
+    {
+        speedButton = Instantiate(finishButton, finishButton.transform.parent, false);
+        speedButton.name = "SpeedButton";
+        speedButton.onClick = new Button.ButtonClickedEvent();
+        speedButton.interactable = true;
+        RectTransform rect = (RectTransform)speedButton.transform;
+        rect.anchorMin = Vector2.one;
+        rect.anchorMax = Vector2.one;
+        rect.pivot = Vector2.one;
+        rect.anchoredPosition = new Vector2(-20f, -20f);
+        rect.sizeDelta = new Vector2(140f, 70f);
+        speedButtonText = speedButton.GetComponentInChildren<TMP_Text>(true);
+    }
+
     private void OnEnable()
     {
         previousTimeScale = Time.timeScale;
         isBattlePaused = false;
         isShowingGearIntro = false;
+        speedButton.gameObject.SetActive(true);
+        speedButton.onClick.AddListener(TogglePlaybackSpeed);
+        UpdateSpeedButton();
         ApplyPlaybackTimeScale();
         finishButton.onClick.AddListener(FinishBattle);
     }
@@ -75,6 +96,8 @@ public sealed class BattleSceneController : MonoBehaviour
     private void OnDisable()
     {
         finishButton.onClick.RemoveListener(FinishBattle);
+        speedButton.onClick.RemoveListener(TogglePlaybackSpeed);
+        speedButton.gameObject.SetActive(false);
         isBattlePaused = false;
         isShowingGearIntro = false;
         if (activeGearIntroObject != null)
@@ -83,6 +106,14 @@ public sealed class BattleSceneController : MonoBehaviour
             activeGearIntroObject = null;
         }
         Time.timeScale = previousTimeScale;
+    }
+
+    private void OnDestroy()
+    {
+        if (speedButton != null)
+        {
+            Destroy(speedButton.gameObject);
+        }
     }
 
     public void PauseBattle()
@@ -106,7 +137,18 @@ public sealed class BattleSceneController : MonoBehaviour
         }
 
         playbackSpeed = speed;
+        UpdateSpeedButton();
         ApplyPlaybackTimeScale();
+    }
+
+    private void TogglePlaybackSpeed()
+    {
+        SetPlaybackSpeed(playbackSpeed == InitialPlaybackSpeed ? FastPlaybackSpeed : InitialPlaybackSpeed);
+    }
+
+    private void UpdateSpeedButton()
+    {
+        speedButtonText.text = playbackSpeed.ToString("0.#") + "x";
     }
 
     private void ApplyPlaybackTimeScale()
@@ -378,6 +420,7 @@ public sealed class BattleSceneController : MonoBehaviour
         }
 
         SortCombatantRenderOrder(combatantRenderOrder);
+        speedButton.transform.SetAsLastSibling();
         return true;
     }
 
