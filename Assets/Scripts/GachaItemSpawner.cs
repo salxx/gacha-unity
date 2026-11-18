@@ -50,6 +50,9 @@ public class GachaItemSpawner : Singleton<GachaItemSpawner>
     [Tooltip("UI text showing the current reward in the SingleItemOnClick strategy.")]
     [SerializeField] private TMP_Text rewardInfoText;
 
+    [Header("Booster Pack (Support Cards)")]
+    [SerializeField] private BoosterPackController boosterPack;
+
     [Header("Assembly Placement")]
     [SerializeField] private Vector3 spawnCoordinates = Vector3.zero;
     [SerializeField] private float itemSpacing = 2.0f;
@@ -99,6 +102,7 @@ public class GachaItemSpawner : Singleton<GachaItemSpawner>
     public bool IsSequenceActive { get; private set; }
 
     private bool IsSkipRaresActive => nextPullToggle.isOn;
+    private bool IsSupportCardPull => queuedRewards != null && queuedRewards.Length > 0 && queuedRewards[0].IsSupportCard;
 
     protected override void Awake()
     {
@@ -113,11 +117,16 @@ public class GachaItemSpawner : Singleton<GachaItemSpawner>
 
         nextButton.onClick.AddListener(OnNextButtonClicked);
         SetSequenceControlsVisible(false);
+        boosterPack.ResetAndHide();
     }
 
     protected override void OnDestroy()
     {
-        nextButton.onClick.RemoveListener(OnNextButtonClicked);
+        if (nextButton != null)
+        {
+            nextButton.onClick.RemoveListener(OnNextButtonClicked);
+        }
+
         base.OnDestroy();
     }
 
@@ -139,7 +148,11 @@ public class GachaItemSpawner : Singleton<GachaItemSpawner>
             return;
         }
 
-        if (strategy == SpawnStrategy.Line)
+        if (rewards[0].IsSupportCard)
+        {
+            AssembleRewardsSupportCard(rewards);
+        }
+        else if (strategy == SpawnStrategy.Line)
         {
             AssembleRewardsLine(rewards);
         }
@@ -157,6 +170,7 @@ public class GachaItemSpawner : Singleton<GachaItemSpawner>
         StopReveal();
         DestroyAll(spawnedItems);
         ClearPullIndicators();
+        boosterPack.ResetAndHide();
         queuedRewards = null;
         EndSequence();
     }
@@ -224,6 +238,100 @@ public class GachaItemSpawner : Singleton<GachaItemSpawner>
 
     #endregion
 
+    #region Support card booster pack strategy
+
+    private void AssembleRewardsSupportCard(GachaReward[] rewards)
+    {
+        queuedRewards = (GachaReward[])rewards.Clone();
+        maxRevealedIndex = -1;
+        IsSequenceActive = true;
+
+        SetSequenceControlsVisible(true);
+        nextButton.interactable = false;
+        nextPullToggle.interactable = false;
+
+        SpawnPullIndicators(queuedRewards.Length);
+        OnSequenceStarted?.Invoke();
+
+        StopReveal();
+        revealCoroutine = StartCoroutine(SupportCardBoosterSequenceRoutine());
+    }
+
+    private IEnumerator SupportCardBoosterSequenceRoutine()
+    {
+        isRevealing = true;
+        nextButton.interactable = false;
+        nextPullToggle.interactable = false;
+
+        boosterPack.SetupPulls(queuedRewards);
+        yield return boosterPack.PlayIntroRoutine(queuedRewards.Length);
+
+        yield return RevealBoosterCardLoop(0);
+    }
+
+    private IEnumerator RevealBoosterCardLoop(int startIndex)
+    {
+        isRevealing = true;
+        nextButton.interactable = false;
+        nextPullToggle.interactable = true;
+
+        for (int index = startIndex; index < queuedRewards.Length; index++)
+        {
+            GachaReward reward = queuedRewards[index];
+            bool skipThisRare = reward.Tier == Tiers.Rare && IsSkipRaresActive;
+
+            rewardInfoText.gameObject.SetActive(false);
+
+            yield return boosterPack.DrawCardRoutine(index);
+
+            maxRevealedIndex = index;
+            audioSource.PlayOneShot(GetAudioClipForTier(reward.Tier));
+
+            indicatorImages[index].color = GetColorForTier(reward.Tier);
+            indicatorButtons[index].interactable = true;
+            ShowRewardInfo(reward);
+
+            bool hasMore = index + 1 < queuedRewards.Length;
+            if (!skipThisRare || !hasMore)
+            {
+                break;
+            }
+
+            nextPullToggle.interactable = true;
+            if (skipRareDisplayDuration > 0f)
+            {
+                yield return new WaitForSeconds(skipRareDisplayDuration);
+            }
+        }
+
+        isRevealing = false;
+        revealCoroutine = null;
+        nextButton.interactable = true;
+        nextPullToggle.interactable = true;
+    }
+
+    private void AdvanceBoosterSequence()
+    {
+        int nextIndex = maxRevealedIndex + 1;
+        if (nextIndex < queuedRewards.Length)
+        {
+            StopReveal();
+            revealCoroutine = StartCoroutine(RevealBoosterCardLoop(nextIndex));
+        }
+        else
+        {
+            ClearSpawnedItems();
+        }
+    }
+
+    private void DisplaySupportCardAt(int index)
+    {
+        boosterPack.ShowCardAtCenter(index);
+        ShowRewardInfo(queuedRewards[index]);
+    }
+
+    #endregion
+
     #region Single item strategy
 
     private void AssembleRewardsSingleItem(GachaReward[] rewards)
@@ -246,7 +354,14 @@ public class GachaItemSpawner : Singleton<GachaItemSpawner>
     {
         if (IsSequenceActive && !isRevealing)
         {
-            AdvanceSingleItemSequence();
+            if (IsSupportCardPull)
+            {
+                AdvanceBoosterSequence();
+            }
+            else
+            {
+                AdvanceSingleItemSequence();
+            }
         }
     }
 
@@ -269,7 +384,14 @@ public class GachaItemSpawner : Singleton<GachaItemSpawner>
         // Only already revealed pulls can be re-displayed.
         if (IsSequenceActive && !isRevealing && index <= maxRevealedIndex)
         {
-            DisplayRewardAt(index);
+            if (IsSupportCardPull)
+            {
+                DisplaySupportCardAt(index);
+            }
+            else
+            {
+                DisplayRewardAt(index);
+            }
         }
     }
 
@@ -518,9 +640,20 @@ public class GachaItemSpawner : Singleton<GachaItemSpawner>
 
     private void SetSequenceControlsVisible(bool visible)
     {
-        nextButton.gameObject.SetActive(visible);
-        nextPullToggle.gameObject.SetActive(visible);
-        rewardInfoText.gameObject.SetActive(false);
+        if (nextButton != null)
+        {
+            nextButton.gameObject.SetActive(visible);
+        }
+
+        if (nextPullToggle != null)
+        {
+            nextPullToggle.gameObject.SetActive(visible);
+        }
+
+        if (rewardInfoText != null)
+        {
+            rewardInfoText.gameObject.SetActive(false);
+        }
     }
 
     private void StopReveal()
@@ -542,8 +675,16 @@ public class GachaItemSpawner : Singleton<GachaItemSpawner>
 
     private void EndSequence()
     {
-        nextButton.interactable = true;
-        nextPullToggle.interactable = true;
+        if (nextButton != null)
+        {
+            nextButton.interactable = true;
+        }
+
+        if (nextPullToggle != null)
+        {
+            nextPullToggle.interactable = true;
+        }
+
         SetSequenceControlsVisible(false);
 
         if (IsSequenceActive)
