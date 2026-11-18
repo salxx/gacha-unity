@@ -30,7 +30,7 @@ public sealed class BattleTeamSelector : MonoBehaviour
     private TMP_Text statusText;
     private Button startButton;
     private Button clearButton;
-    private Button cancelButton;
+    private Button backgroundButton;
     private int selectedSlot;
     private int generation;
     private bool ready;
@@ -253,7 +253,7 @@ public sealed class BattleTeamSelector : MonoBehaviour
             }
         }
         clearButton.interactable = ready && !saving && selectedSlot >= 0 && selectedIds[selectedSlot] != null;
-        cancelButton.interactable = !saving;
+        backgroundButton.interactable = !saving;
         startButton.interactable = ready && !saving && IsTeamValid();
         RenderCandidates();
     }
@@ -383,7 +383,15 @@ public sealed class BattleTeamSelector : MonoBehaviour
     {
         RectTransform root = (RectTransform)transform;
         Stretch(root, Vector2.zero, Vector2.one);
-        GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.35f);
+        GetComponent<Image>().raycastTarget = false;
+        GetComponent<Image>().color = Color.clear;
+        Image background = MakeImage(transform, "Background", new Color(0f, 0f, 0f, 0.35f),
+            Vector2.zero, Vector2.one);
+        backgroundButton = background.gameObject.AddComponent<Button>();
+        backgroundButton.targetGraphic = background;
+        backgroundButton.transition = Selectable.Transition.None;
+        backgroundButton.navigation = new Navigation { mode = Navigation.Mode.None };
+        backgroundButton.onClick.AddListener(() => gameObject.SetActive(false));
 
         Image panel = MakeImage(transform, "Panel", PanelColor, new Vector2(0.04f, 0.04f), new Vector2(0.96f, 0.96f));
         TMP_Text title = MakeText(panel.transform, new Vector2(0.02f, 0.91f), new Vector2(0.98f, 0.99f), 32);
@@ -414,8 +422,6 @@ public sealed class BattleTeamSelector : MonoBehaviour
 
         statusText = MakeText(panel.transform, new Vector2(0.02f, 0.09f), new Vector2(0.98f, 0.16f), 20);
         statusText.alignment = TextAlignmentOptions.MidlineLeft;
-        cancelButton = MakeActionButton(panel.transform, "Cancel", new Vector2(0.60f, 0.02f), new Vector2(0.77f, 0.08f));
-        cancelButton.onClick.AddListener(() => gameObject.SetActive(false));
         startButton = MakeActionButton(panel.transform, "Start battle", new Vector2(0.79f, 0.02f), new Vector2(0.98f, 0.08f));
         startButton.onClick.AddListener(SaveAndStart);
 

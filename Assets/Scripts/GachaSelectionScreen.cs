@@ -166,7 +166,7 @@ public sealed class GachaSelectionScreen : MonoBehaviour
         }
 
         UpdateDailyText(index, category, featured, expiresAt, DateTimeOffset.UtcNow);
-        SetPortrait(index, featured.character_id);
+        SetPortrait(index, index == 1 ? featured.character_id : featured.featured_id);
     }
 
     private void UpdateDailyText(
@@ -182,16 +182,16 @@ public sealed class GachaSelectionScreen : MonoBehaviour
         return $"{seconds / 3600:D2}:{seconds / 60 % 60:D2}:{seconds % 60:D2}";
     }
 
-    private void SetPortrait(int index, string characterId)
+    private void SetPortrait(int index, string featuredId)
     {
         Sprite sprite = null;
-        if (characterId != null)
+        if (featuredId != null)
         {
-            string path = "Images/Characters/" + characterId;
+            string path = (index == 1 ? "Images/Characters/" : "Images/Cards/") + featuredId;
             sprite = Resources.Load<Sprite>(path);
             if (sprite == null)
             {
-                Debug.LogWarning($"Featured character image not found at Resources/{path}.", this);
+                Debug.LogWarning($"Featured image not found at Resources/{path}.", this);
             }
         }
         portraits[index].sprite = sprite;

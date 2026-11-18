@@ -69,7 +69,20 @@ public class CardGridItem : MonoBehaviour
         }
         else
         {
-            Sprite cardSprite = Resources.Load<Sprite>($"Images/Cards/{spriteName}");
+            Sprite cardSprite = null;
+            if (string.IsNullOrWhiteSpace(card.id))
+            {
+                Debug.LogError("Cannot load a support card image without a card ID.", context);
+            }
+            else
+            {
+                cardSprite = Resources.Load<Sprite>($"Images/Cards/{card.id}");
+            }
+
+            if (cardSprite == null)
+            {
+                cardSprite = Resources.Load<Sprite>($"Images/Cards/{spriteName}");
+            }
             if (cardSprite == null)
             {
                 Debug.LogError($"Support card sprite not found: Images/Cards/{spriteName}.", context);

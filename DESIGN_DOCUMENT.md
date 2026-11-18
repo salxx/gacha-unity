@@ -112,7 +112,7 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
 | **Power** | Raw damage base value. Maxed by most characters. | `damage = power` |
 | **Agility** | Attack speed / fire rate. | `attacks/s = 0.5 + agility / 200` |
 | **Impact** | Penetration of enemy armor. | `penetration = impact / 2` |
-| **Defense** | Health and armor (damage reduction). Prioritized by tanks. | `maxHP = 100 + 2·defense`, `armor = defense / 2` |
+| **Defense** | Health and armor (damage reduction). Prioritized by tanks. | `maxHP = max(10, 10 × max(defense, (average of five battle traits + defense) / 2))` |
 | **Finesse** | Reserved for future skill mechanics; it does not affect prototype battle evasion. | `skill chance = finesse / 1000` (planned) |
 
 - Damage reduction: `effectiveArmor = max(0, armor − penetration)`, `reduction = effectiveArmor / (effectiveArmor + 100)`.
@@ -201,14 +201,15 @@ Five traits are improved in Training Mode (akin to *Umamusume* stats) and drive 
 - Upon round 36 completion, the run completes and trainee is prepared for graduation.
 
 ### 4.2 PvE Auto-Battler (Combat)
-- Mission selection uses 3–8 finished trainees with distinct character IDs in player-selected Front, Close, Mid and Back slots (two per lane). The formation runs horizontally from Back to Front, with the second slot offset left. Selecting a slot opens a popup listing trainees by score with rank and affinities; selecting an already-used character moves them to the chosen slot, swapping any occupant into their former slot. Selected slots show the lane, affinity, and any nonzero affinity bonus or penalty. The saved default team is reusable, and the backend supports multiple team IDs.
-- The HomeScene gacha button opens the `GachaSelectionScreen` prefab with standard and daily featured banners for both characters and support cards. Daily tier-3 features rotate at midnight UTC; the featured banners show a countdown based on the server's expiry time and the device clock. Each tier-3 pull has a 50% featured chance, otherwise using the normal pool (which can also contain the feature). Every banner costs 900 tokens for 10 pulls. Clicking the background closes the selection.
+- Mission selection uses 3–8 finished trainees with distinct character IDs in player-selected Front, Close, Mid and Back slots (two per lane). The formation runs horizontally from Back to Front, with the second slot offset left. Selecting a slot opens a popup listing trainees by score with rank and affinities; selecting an already-used character moves them to the chosen slot, swapping any occupant into their former slot. Selected slots show the lane, affinity, and any nonzero affinity bonus or penalty. Click the dim background to close the team selector. The saved default team is reusable, and the backend supports multiple team IDs.
+- The HomeScene gacha button opens the `GachaSelectionScreen` prefab with standard and daily featured banners for both characters and support cards. Featured character images are loaded from `Resources/Images/Characters` by character ID; support-card images are loaded from `Resources/Images/Cards` by card ID. Missing images are hidden. Daily tier-3 features rotate at midnight UTC; the featured banners show a countdown based on the server's expiry time and the device clock. Each tier-3 pull has a 50% featured chance, otherwise using the normal pool (which can also contain the feature). Every banner costs 900 tokens for 10 pulls. Clicking the background closes the selection.
 - After login, the daily bonus is checked before showing a blocking popup for available rewards. Claiming credits 100 tokens and refreshes the displayed balance. The reward resets at midnight UTC; missed days do not accumulate. Failed checks and claims can be retried from the popup.
 - Enemy formation supports up to three combatants each in Front, Mid and Back; current training dummies start in Mid.
 - Enemies are loaded from `data/enemy.json`; tier is an integer mapped to Grunt (1), Elite (2), and Boss (3). Current training dummies are Grunts and carry Basic Selective Targeting.
 - Gear `gear_001` lets its bearer assassinate one Grunt below half health once per battle; it may select a Grunt from any lane.
 - Attacks prioritize the foremost lane with living opponents, then choose a living target uniformly at random within that lane. Selective Targeting may choose the lowest-health target in a multi-target lane.
 - Automated combat resolution: Each combatant attacks independently based on agility; learned skills can modify target selection or damage, and activated skills are included in replay actions.
+- Combatant health bars show current and maximum HP as centered dark text throughout the battle replay.
 
 ---
 

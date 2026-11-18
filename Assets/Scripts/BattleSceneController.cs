@@ -372,7 +372,7 @@ public sealed class BattleSceneController : MonoBehaviour
             namesById.Add(combatant.id, string.IsNullOrEmpty(combatant.name)
                 ? combatant.side
                 : combatant.name);
-            SetHealth(sliders[0], combatant.max_health, combatant.initial_health);
+            SetHealth(combatantUi, combatant.max_health, combatant.initial_health);
             SetCooldown(sliders[1], 0f);
             image.gameObject.SetActive(true);
         }
@@ -599,7 +599,7 @@ public sealed class BattleSceneController : MonoBehaviour
                 }
             }
 
-            targetUi.slider.value = Mathf.Clamp(action.target_health, 0, target.max_health);
+            SetHealth(targetUi, target.max_health, action.target_health);
             if (action.target_health <= 0)
             {
                 targetUi.image.color = Color.gray;
@@ -630,6 +630,15 @@ public sealed class BattleSceneController : MonoBehaviour
                 {
                     if (triggeredSkill != null)
                     {
+                        if (triggeredSkill.id == "skill_004a" || triggeredSkill.id == "skill_004b")
+                        {
+                            int healthAfterDamage = Mathf.Max(0, target.health - action.damage);
+                            int healing = action.target_health - healthAfterDamage;
+                            if (healing > 0)
+                            {
+                                QueueFloatingText(targetUi, "+" + healing, new Color(0.08f, 0.6f, 0.08f, 1f));
+                            }
+                        }
                         AppendLog(FormatTime(action.time_seconds) + " " + attackerName
                             + " triggered " + triggeredSkill.name + ".");
                     }
@@ -1077,12 +1086,39 @@ public sealed class BattleSceneController : MonoBehaviour
         return canvasPosition;
     }
 
-    private static void SetHealth(Slider slider, int maxHealth, int health)
+    private static void SetHealth(CombatantUi ui, int maxHealth, int health)
     {
+        Slider slider = ui.slider;
+        int maximum = Mathf.Max(1, maxHealth);
+        int current = Mathf.Clamp(health, 0, maximum);
         slider.minValue = 0;
-        slider.maxValue = Mathf.Max(1, maxHealth);
+        slider.maxValue = maximum;
         slider.wholeNumbers = true;
-        slider.value = Mathf.Clamp(health, 0, slider.maxValue);
+        slider.value = current;
+        ui.healthText.text = $"{current}/{maximum}";
+    }
+
+    private static TMP_Text CreateHealthText(Slider slider)
+    {
+        GameObject label = new GameObject("HealthText", typeof(RectTransform), typeof(CanvasRenderer),
+            typeof(TextMeshProUGUI));
+        label.layer = slider.gameObject.layer;
+        label.transform.SetParent(slider.transform, false);
+        RectTransform rect = (RectTransform)label.transform;
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = new Vector2(0f, 4f);
+        rect.offsetMax = new Vector2(0f, -4f);
+        TMP_Text text = label.GetComponent<TMP_Text>();
+        text.alignment = TextAlignmentOptions.Center;
+        text.fontStyle = FontStyles.Bold;
+        text.color = new Color(0.1f, 0.1f, 0.1f, 1f);
+        text.fontSize = 22f;
+        text.enableAutoSizing = true;
+        text.fontSizeMin = 8f;
+        text.fontSizeMax = 22f;
+        text.raycastTarget = false;
+        return text;
     }
 
     private static void SetCooldown(Slider slider, float progress)
@@ -1098,6 +1134,7 @@ public sealed class BattleSceneController : MonoBehaviour
         public readonly Image image;
         public readonly Slider slider;
         public readonly Slider cooldownSlider;
+        public readonly TMP_Text healthText;
         public readonly Queue<FloatingTextRequest> floatingTexts =
             new Queue<FloatingTextRequest>();
         public bool isDisplayingFloatingText;
@@ -1107,6 +1144,7 @@ public sealed class BattleSceneController : MonoBehaviour
             this.image = image;
             this.slider = slider;
             this.cooldownSlider = cooldownSlider;
+            healthText = CreateHealthText(slider);
         }
     }
 
